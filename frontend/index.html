@@ -10,8 +10,10 @@
 <body>
   <main class="app">
     <section id="view-home" class="tab-panel active">
-      <header class="panel-header">
+      <header class="panel-header home-header">
         <h1>LAFhvst</h1>
+        <button id="serverModeBtn" class="btn" type="button" hidden
+          title="창을 닫고 트레이에서 서버로 계속 실행">서버 모드</button>
       </header>
       <div id="homeWidgets" class="widget-grid">
         <article class="widget" id="widgetStatus">
@@ -227,6 +229,10 @@
             <label class="setting-row">
               <span class="label-help">DB 그리드/컴팩트 썸네일 표시<span class="help-icon" role="button" tabindex="0" data-help="DB 탭의 그리드/컴팩트 보기에서 다운로드 이미지 썸네일을 표시합니다.">?</span></span>
               <input type="checkbox" id="dbThumbnailsToggle" checked>
+            </label>
+            <label class="setting-row">
+              <span class="label-help">창 닫으면 트레이로 (서버 유지)<span class="help-icon" role="button" tabindex="0" data-help="창을 닫아도 트레이로 숨겨 서버를 계속 실행합니다. 끄면 창 닫을 때 앱이 종료됩니다. 완전 종료는 트레이 아이콘 우클릭 → 종료.">?</span></span>
+              <input type="checkbox" id="closeToTrayToggle" checked>
             </label>
           </div>
         </section>

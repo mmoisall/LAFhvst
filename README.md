@@ -42,18 +42,33 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 ## EXE (Releases)
 
 [Releases](https://github.com/mmoisall/LAFhvst/releases)에서 `LAFhvst-<버전>-win64.zip`을 받아
-압축을 풀고 `LAFhvst.exe`를 실행한다. 데이터(`lafhvst.db`, `data/`, `log/`)는 exe 옆에 생성되므로
-폴더째로 이동/백업할 수 있다.
+압축을 풀고 실행한다. 데이터(`lafhvst.db`, `data/`, `log/`)는 exe 옆에 생성되므로 폴더째로
+이동/백업할 수 있다.
 
+| 실행 파일 | 설명 |
+| --- | --- |
+| `LAFhvst.exe` | 데스크톱 창(GUI). 트레이 상주 지원 |
+| `LAFhvst-server.exe` | 창 없는 서버(콘솔). 배너/로그 표시, `Ctrl+C` 종료 |
+| `gallery-dl.exe` | 내장 gallery-dl (자동 사용) |
+
+- 서버 포트: `--port 17363` 또는 `LAF_PORT` 환경변수
 - 요구 환경: Windows 10/11, WebView2 런타임(기본 탑재)
 - 프로필 로그인/감시 기능: 시스템 Chrome 또는 Edge 필요
 - 픽시브 ugoira(webm) 변환: 시스템 ffmpeg 필요(없으면 해당 변환만 생략)
 
+### 트레이 · 서버 모드
+
+- 창의 **X(닫기)** → 앱 종료 대신 **트레이로 숨김**, 서버는 계속 실행
+- 홈 화면 우상단 **"서버 모드"** 버튼 → 동일하게 트레이로 숨김
+- 트레이 아이콘 **우클릭** → `열기` / `서버 주소` / `종료`
+- 완전 종료는 트레이 메뉴의 **종료**
+- 설정 → "창 닫으면 트레이로 (서버 유지)" 로 동작 on/off (끄면 X 시 종료)
+
 소스에서 직접 빌드:
 
 ```powershell
-./build.ps1 -Version 0.1.0
-# 산출물: dist/LAFhvst-0.1.0-win64.zip
+./build.ps1 -Version 0.1.1
+# 산출물: dist/LAFhvst-0.1.1-win64.zip
 ```
 
 ## 데이터 및 설정
@@ -97,6 +112,7 @@ LAFhvst/
 │  ├─ gdl_executor.py # gallery-dl 실행/설정
 │  ├─ browser_manager.py / browser_watcher.py
 │  ├─ alt_paths.py    # 대체경로 동기화
+│  ├─ app_control.py  # GUI 트레이/창·서버 생명주기
 │  ├─ kde.py, sites.py, site_url.py, utils.py, error_logger.py
 ├─ frontend/          # 정적 웹 UI (HTML/CSS/JS)
 ├─ assets/            # 아이콘 (icon.png, LAFhvst.ico)

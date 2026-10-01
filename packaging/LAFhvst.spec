@@ -1,9 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 """LAFhvst onedir 빌드 스펙.
 
-두 개의 실행 파일을 같은 `_internal` 폴더로 배포한다:
-  - LAFhvst.exe    : GUI (main.py)
-  - gallery-dl.exe : gallery-dl 콘솔 (core/gdl_executor 가 같은 폴더에서 탐색)
+세 개의 실행 파일을 같은 `_internal` 폴더로 배포한다:
+  - LAFhvst.exe        : GUI (main.py, 트레이 상주)
+  - LAFhvst-server.exe : 서버 콘솔 (packaging/server_cli.py, 창 없음)
+  - gallery-dl.exe     : gallery-dl 콘솔 (core/gdl_executor 가 같은 폴더에서 탐색)
 """
 
 import os
@@ -20,7 +21,7 @@ datas = [
 binaries = []
 hiddenimports = []
 
-for package in ("playwright", "webview", "pythonnet", "clr_loader", "gallery_dl"):
+for package in ("playwright", "webview", "pythonnet", "clr_loader", "gallery_dl", "pystray"):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
     datas += pkg_datas
     binaries += pkg_binaries
@@ -30,6 +31,7 @@ hiddenimports += collect_submodules("uvicorn")
 hiddenimports += [
     "clr",
     "webview.platforms.edgechromium",
+    "pystray._win32",
     "uvicorn.logging",
     "uvicorn.loops.auto",
     "uvicorn.loops.asyncio",
@@ -42,18 +44,23 @@ hiddenimports += [
 
 ICON = os.path.join(ROOT, "assets", "LAFhvst.ico")
 
-gui_analysis = Analysis(
-    [os.path.join(ROOT, "main.py")],
-    pathex=[ROOT],
-    binaries=binaries,
-    datas=datas,
-    hiddenimports=hiddenimports,
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    noarchive=False,
-)
+
+def _analysis(script):
+    return Analysis(
+        [script],
+        pathex=[ROOT],
+        binaries=binaries,
+        datas=datas,
+        hiddenimports=hiddenimports,
+        hookspath=[],
+        hooksconfig={},
+        runtime_hooks=[],
+        excludes=[],
+        noarchive=False,
+    )
+
+
+gui_analysis = _analysis(os.path.join(ROOT, "main.py"))
 gui_pyz = PYZ(gui_analysis.pure)
 gui_exe = EXE(
     gui_pyz,
@@ -69,22 +76,27 @@ gui_exe = EXE(
     icon=ICON,
 )
 
-cli_analysis = Analysis(
-    [os.path.join(ROOT, "packaging", "gallery_dl_cli.py")],
-    pathex=[ROOT],
-    binaries=binaries,
-    datas=datas,
-    hiddenimports=hiddenimports,
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    noarchive=False,
+server_analysis = _analysis(os.path.join(ROOT, "packaging", "server_cli.py"))
+server_pyz = PYZ(server_analysis.pure)
+server_exe = EXE(
+    server_pyz,
+    server_analysis.scripts,
+    [],
+    exclude_binaries=True,
+    name="LAFhvst-server",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=True,
+    icon=ICON,
 )
-cli_pyz = PYZ(cli_analysis.pure)
-cli_exe = EXE(
-    cli_pyz,
-    cli_analysis.scripts,
+
+gdl_analysis = _analysis(os.path.join(ROOT, "packaging", "gallery_dl_cli.py"))
+gdl_pyz = PYZ(gdl_analysis.pure)
+gdl_exe = EXE(
+    gdl_pyz,
+    gdl_analysis.scripts,
     [],
     exclude_binaries=True,
     name="gallery-dl",
@@ -99,9 +111,12 @@ COLLECT(
     gui_exe,
     gui_analysis.binaries,
     gui_analysis.datas,
-    cli_exe,
-    cli_analysis.binaries,
-    cli_analysis.datas,
+    server_exe,
+    server_analysis.binaries,
+    server_analysis.datas,
+    gdl_exe,
+    gdl_analysis.binaries,
+    gdl_analysis.datas,
     strip=False,
     upx=False,
     name="LAFhvst",

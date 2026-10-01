@@ -91,6 +91,7 @@ DEFAULT_SETTINGS = {
     "browserChannel": "auto",
     "stealthEnabled": True,
     "browserCleanup": True,
+    "closeToTray": True,
     "itemCycOption": 0,
     "itemCyc": 1,
     "itemLogLevel": "INFO",

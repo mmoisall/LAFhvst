@@ -59,6 +59,17 @@ body {
   letter-spacing: -0.02em;
 }
 
+.panel-header.home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-header.home-header h1 {
+  margin: 0;
+}
+
 .widget-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

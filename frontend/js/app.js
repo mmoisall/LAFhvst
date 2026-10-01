@@ -55,6 +55,10 @@
       if (dbThumbnails) {
         dbThumbnails.checked = settings.dbThumbnails !== false;
       }
+      var closeToTray = document.getElementById("closeToTrayToggle");
+      if (closeToTray) {
+        closeToTray.checked = settings.closeToTray !== false;
+      }
       var browserChannel = document.getElementById("browserChannelSelect");
       if (browserChannel && settings.browserChannel) {
         browserChannel.value = settings.browserChannel;
@@ -169,6 +173,9 @@
       maxConcurrency: maxConcurrency ? (parseInt(maxConcurrency.value, 10) || 3) : 3,
       dbThumbnails: document.getElementById("dbThumbnailsToggle")
         ? document.getElementById("dbThumbnailsToggle").checked
+        : true,
+      closeToTray: document.getElementById("closeToTrayToggle")
+        ? document.getElementById("closeToTrayToggle").checked
         : true,
       browserChannel: document.getElementById("browserChannelSelect")
         ? document.getElementById("browserChannelSelect").value

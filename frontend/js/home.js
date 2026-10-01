@@ -141,6 +141,29 @@
       '" class="kde-svg" preserveAspectRatio="xMinYMin meet">' + parts.join("") + "</svg>";
   }
 
+  function setupServerModeButton() {
+    var btn = byId("serverModeBtn");
+    if (!btn) {
+      return;
+    }
+    function attach() {
+      var api = window.pywebview && window.pywebview.api;
+      if (api && api.hide_to_tray) {
+        btn.hidden = false;
+        btn.onclick = function () {
+          api.hide_to_tray();
+        };
+      } else {
+        btn.hidden = true;
+      }
+    }
+    if (window.pywebview && window.pywebview.api) {
+      attach();
+    } else {
+      window.addEventListener("pywebviewready", attach);
+    }
+  }
+
   function init() {
     var select = byId("kdeSourceSelect");
     if (select) {
@@ -148,6 +171,7 @@
         loadKde(parseInt(select.value, 10));
       });
     }
+    setupServerModeButton();
     loadSources();
     loadStatus();
     if (!state.statusTimer) {
