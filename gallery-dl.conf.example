@@ -1,0 +1,141 @@
+{
+  "extractor": {
+    "twitter": {
+      "directory": [
+        "twitter - {user[id]} - {user[name]} - {user[nick]}"
+      ],
+      "filename": "{date:%Y-%m-%d %H%M%S} - {user[name]} - twitter - {tweet_id}-{num}({filename}).{extension}",
+      "size": [
+        "orig"
+      ],
+      "include": "media",
+      "sleep": [
+        1.3,
+        8
+      ],
+      "sleep-request": [
+        5,
+        8
+      ],
+      "locked": "wait",
+      "logout": true,
+      "retweets": false,
+      "syndication": "extended",
+      "users": "media",
+      "text-tweets": false,
+      "unique": true,
+      "twitpic": true,
+      "videos": true,
+      "user-agent": "Mozilla/5.0 (Android 14; Mobile; rv:131.0) Gecko/131.0 Firefox/131.0"
+    },
+    "pixiv": {
+      "directory": [
+        "pixiv - {user[id]} - {user[name]}"
+      ],
+      "filename": "{date:%Y-%m-%d %H%M%S} - {user[name]} - pixiv - {title}-{num}({filename}).{extension}",
+      "actions": {
+        "warning:limit_sanity_level": "level = debug"
+      },
+      "ugoira": true
+    },
+    "tumblr": {
+      "directory": [
+        "tumblr - {blog_name} - {blog[title]}"
+      ],
+      "filename": "{date:%Y-%m-%d %H%M%S} - {blog_name} - tumblr - {id}-{num}.{extension}"
+    },
+    "deviantart": {
+      "directory": [
+        "deviantart - {username}"
+      ],
+      "filename": "{date:%Y-%m-%d %H%M%S} - {username} - deviantart - {index}({title}).{extension}"
+    },
+    "bluesky": {
+      "directory": [
+        "bluesky - {author[did]} - {author[displayName]}"
+      ],
+      "filename": "{date:%Y-%m-%d %H%M%S} - {author[handle]} - bluesky - {post_id}-{num}({filename}).{extension}"
+    },
+    "mastodon": {
+      "directory": [
+        "{instance} - {account[id]} - {account[username]}"
+      ],
+      "filename": "{date:%Y-%m-%d %H%M%S} - {account[username]} - {category} - {id}-{num}.{extension}"
+    },
+    "e621": {
+      "directory": [
+        "e621 - {search_tags}"
+      ],
+      "filename": "{date:%Y-%m-%d %H%M%S} - {search_tags} - e621 - {id}.{extension}"
+    },
+    "naver": {
+      "directory": [
+        "naver - {blog[id]} - {blog[user]}"
+      ],
+      "filename": "{post[date]:%Y-%m-%d %H%M%S} - {blog[id]} - naver - {post[title]} - {post[num]}-{num}({filename[:100]}).{extension}"
+    },
+    "naverwebtoon": {
+      "directory": [
+        "naverwebtoon - {title_id} - {comic} - {author[0]},{artist[0]}"
+      ],
+      "filename": "{episode:>04} - {title} - {filename[:100]} - {comic} - naverwebtoon - {author[0]},{artist[0]} - {title_id}.{extension}"
+    },
+    "instagram": {
+      "directory": [
+        "instagram - {user[id]} - {username}"
+      ],
+      "filename": "{date:%Y-%m-%d %H%M%S} - {username} - instagram - {media_id}-{num}.{extension}"
+    },
+    "sankaku": {
+      "directory": [
+        "sankaku"
+      ],
+      "filename": "{date:%Y-%m-%d %H%M%S} - sankaku - {id}.{extension}"
+    },
+    "sankakucomplex": {},
+    "paheal": {
+      "directory": [
+        "paheal"
+      ],
+      "filename": "{date:%Y-%m-%d %H%M%S} - paheal - {id}.{extension}"
+    }
+  },
+  "downloader": {},
+  "output": {
+    "logfile": {
+      "path": "log\\gallery-dl.log",
+      "mode": "a",
+      "level": "warning",
+      "format": {
+        "debug": "[{asctime}][{levelname}][{name}] {message}",
+        "info": "[{asctime}][{levelname}][{name}] {message}",
+        "warning": "[{asctime}][{levelname}][{name}] {message} [Source URL: {extractor.url}]",
+        "error": "[{asctime}][{levelname}][{name}] {message} [Source URL: {extractor.url}]"
+      },
+      "format-date": "%Y-%m-%d %H:%M:%S"
+    },
+    "errorfile": {
+      "path": "log\\gallery-dl_error.log",
+      "mode": "a",
+      "format": "[{asctime}][{levelname}][{name}] {message} [Source URL: {extractor.url}]",
+      "format-date": "%Y-%m-%d %H:%M:%S"
+    }
+  },
+  "postprocessor": {
+    "ugoira-webm": {
+      "name": "ugoira",
+      "extension": "webm",
+      "ffmpeg-args": [
+        "-c:v",
+        "libvpx-vp9",
+        "-an",
+        "-b:v",
+        "0",
+        "-crf",
+        "30"
+      ],
+      "ffmpeg-twopass": true,
+      "ffmpeg-demuxer": "image2"
+    }
+  }
+}

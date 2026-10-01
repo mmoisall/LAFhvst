@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>LAFhvst</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/style.css?v=40">
+</head>
+<body>
+  <main class="app">
+    <section id="view-home" class="tab-panel active">
+      <header class="panel-header">
+        <h1>LAFhvst</h1>
+      </header>
+      <div id="homeWidgets" class="widget-grid">
+        <article class="widget" id="widgetStatus">
+          <h2>스케줄러</h2>
+          <p class="muted" id="schedulerState">-</p>
+        </article>
+        <article class="widget" id="widgetConcurrency">
+          <h2>동시 실행</h2>
+          <p class="muted" id="concurrencyValue">0 / 0</p>
+        </article>
+        <article class="widget" id="widgetQueue">
+          <h2>다음 수집</h2>
+          <p class="muted" id="nextRunValue">-</p>
+        </article>
+      </div>
+
+      <div class="home-kde">
+        <div class="home-kde-head">
+          <h2 class="section-title">업로드 확률 히트맵 (KDE)</h2>
+          <select id="kdeSourceSelect" class="folder-move-select"></select>
+        </div>
+        <p class="muted" id="kdeSummary">소스를 선택하세요.</p>
+        <div id="kdeHeatmap" class="kde-heatmap"></div>
+        <div class="kde-legend">
+          <span>낮음</span><span class="kde-legend-bar"></span><span>높음</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-db" class="tab-panel">
+      <header class="panel-header">
+        <h1>Database</h1>
+      </header>
+
+      <div id="dbToolbar" class="db-toolbar">
+        <div class="db-row db-row-main">
+          <button id="dbUpBtn" class="btn icon-btn" type="button" title="상위 폴더로" aria-label="상위 폴더로">↑</button>
+          <nav id="breadcrumbBar" class="breadcrumb-bar"></nav>
+          <button id="dbSearchToggle" class="btn icon-btn db-search-toggle" type="button" title="검색" aria-label="검색">🔍</button>
+          <button id="dbMoreBtn" class="btn icon-btn db-more-btn" type="button" title="더보기" aria-label="더보기">⋮</button>
+          <input id="dbSearchInput" class="search-input" type="text" placeholder="검색 (이름, URL, 태그, 메모)">
+        </div>
+        <div class="db-row db-row-actions">
+          <div class="view-toggle" role="group" aria-label="보기 모드">
+            <button id="dbViewTable" class="btn icon-btn" type="button" title="테이블 보기">▦</button>
+            <button id="dbViewGrid" class="btn icon-btn" type="button" title="그리드 보기">▤</button>
+            <button id="dbViewCompact" class="btn icon-btn" type="button" title="컴팩트 보기">☰</button>
+          </div>
+          <button id="newFolderBtn" class="btn" type="button" title="새 폴더" aria-label="새 폴더">＋ <span class="btn-label">Folder</span></button>
+          <button id="newSourceBtn" class="btn primary" type="button" title="새 소스" aria-label="새 소스">＋ <span class="btn-label">Source</span></button>
+          <button id="dbRefreshBtn" class="btn icon-btn" type="button" title="새로고침">↻</button>
+        </div>
+        <div id="dbMoreMenu" class="more-menu">
+          <button id="keepFoldersTopBtn" class="btn toggle-chip" type="button" title="폴더 맨 위로 그룹화">📁 <span class="btn-label">Folders on top</span></button>
+          <button id="manualOrderBtn" class="btn toggle-chip" type="button" title="드래그로 순서 변경">⠿ <span class="btn-label">수동 순서</span></button>
+        </div>
+      </div>
+
+      <div id="dbStatusBar" class="db-status-bar">
+        <span id="dbStatusPath" class="db-status-path">루트</span>
+        <span id="dbStatusCounts" class="db-status-counts">폴더 0 · 소스 0</span>
+      </div>
+
+      <div id="explorerMainView" class="explorer-main-view">
+        <div id="batchActionsBar" class="batch-actions-bar hidden">
+          <span class="batch-count-wrap">선택 <span id="batchCount">0</span>개</span>
+          <button id="batchRunBtn" class="btn btn-sm primary" type="button" title="일괄 수집" aria-label="일괄 수집">⚡ <span class="btn-label">일괄 수집</span></button>
+          <button id="batchEditBtn" class="btn btn-sm" type="button" title="일괄 수정" aria-label="일괄 수정">✏️ <span class="btn-label">일괄 수정</span></button>
+          <button id="batchDeleteBtn" class="btn btn-sm danger" type="button" title="일괄 삭제" aria-label="일괄 삭제">🗑️ <span class="btn-label">일괄 삭제</span></button>
+          <select id="batchMoveSelect" class="folder-move-select" title="이동할 폴더" aria-label="이동할 폴더"></select>
+          <button id="batchCancelBtn" class="btn btn-sm" type="button" title="취소" aria-label="취소">✖ <span class="btn-label">취소</span></button>
+        </div>
+        <div class="table-wrap">
+          <table id="itemTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="dbAltView" class="db-alt-view hidden"></div>
+        <div id="emptyTip" class="empty-tip hidden">
+          <p>표시할 폴더나 소스가 없습니다.</p>
+          <div class="empty-actions">
+            <button id="emptyNewFolderBtn" class="btn" type="button">＋ Folder</button>
+            <button id="emptyNewSourceBtn" class="btn primary" type="button">＋ Source</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-profiles" class="tab-panel">
+      <header class="panel-header">
+        <h1>Profiles</h1>
+      </header>
+      <div class="profile-toolbar">
+        <button id="newProfileBtn" class="btn primary" type="button">＋ 단일 프로파일</button>
+        <button id="newGroupBtn" class="btn" type="button">＋ 합동 프로파일</button>
+        <div class="view-toggle" role="group" aria-label="보기 모드">
+          <button id="profilesViewGrid" class="btn icon-btn" type="button" title="그리드 보기">▤</button>
+          <button id="profilesViewCompact" class="btn icon-btn" type="button" title="컴팩트 보기">☰</button>
+        </div>
+        <button id="profilesManualBtn" class="btn toggle-chip" type="button" title="드래그로 순서 변경">⠿ 수동 순서</button>
+        <button id="profilesRefreshBtn" class="btn icon-btn" type="button" title="새로고침">↻</button>
+      </div>
+      <p id="playwrightHint" class="hint muted"></p>
+
+      <h2 class="section-title">단일 프로파일</h2>
+      <div id="profileGrid" class="profile-grid"></div>
+      <p id="profileEmpty" class="empty-tip hidden">등록된 단일 프로파일이 없습니다.</p>
+
+      <h2 class="section-title">합동 프로파일 (Profile Groups)</h2>
+      <div id="groupGrid" class="group-grid"></div>
+      <p id="groupEmpty" class="empty-tip hidden">등록된 합동 프로파일이 없습니다.</p>
+    </section>
+
+    <section id="view-rules" class="tab-panel">
+      <header class="panel-header">
+        <h1>Reactive Rules</h1>
+      </header>
+      <div class="profile-toolbar">
+        <button id="newRuleBtn" class="btn primary" type="button">＋ 반응형 규칙</button>
+        <button id="rulesRefreshBtn" class="btn icon-btn" type="button" title="새로고침">↻</button>
+      </div>
+      <p class="hint muted">알림 텍스트에 키워드가 감지되면 대상 폴더로 즉시 수집을 시작합니다. 키워드는 일반 문자열(부분일치) 또는 <code>/정규식/플래그</code> 형식을 지원합니다.</p>
+      <div id="ruleGrid" class="rule-grid"></div>
+      <p id="ruleEmpty" class="empty-tip hidden">등록된 반응형 규칙이 없습니다.</p>
+    </section>
+
+    <section id="view-log" class="tab-panel">
+      <header class="panel-header">
+        <h1>Logs</h1>
+      </header>
+      <div id="logStatsBar" class="log-stats-bar"></div>
+      <div class="log-toolbar">
+        <select id="logStatusFilter" class="folder-move-select" title="상태">
+          <option value="">전체 상태</option>
+          <option value="open">미해결</option>
+          <option value="resolved">해결</option>
+          <option value="ignored">무시</option>
+        </select>
+        <select id="logLevelFilter" class="folder-move-select" title="레벨">
+          <option value="">전체 레벨</option>
+          <option>ERROR</option>
+          <option>WARN</option>
+          <option>SUCCESS</option>
+          <option>INFO</option>
+          <option>DEBUG</option>
+        </select>
+        <select id="logScopeFilter" class="folder-move-select" title="범위">
+          <option value="">전체 범위</option>
+          <option value="source">아이템</option>
+          <option value="profile">프로파일</option>
+          <option value="watcher">감시</option>
+          <option value="system">시스템</option>
+        </select>
+        <input id="logSearchInput" class="search-input" type="text" placeholder="메시지 검색">
+        <button id="logRefreshBtn" class="btn icon-btn" type="button" title="새로고침">↻</button>
+        <button id="logUnresolvedBtn" class="btn toggle-chip" type="button" title="미해결만 보기">⚠️ 미해결</button>
+        <button id="logClearResolvedBtn" class="btn" type="button" title="해결/무시된 로그 정리">🧹 정리</button>
+      </div>
+      <div id="logList" class="log-list"></div>
+      <p id="logEmpty" class="empty-tip hidden">표시할 로그가 없습니다.</p>
+    </section>
+
+    <section id="view-settings" class="tab-panel">
+      <header class="panel-header">
+        <h1>Settings</h1>
+      </header>
+
+      <form id="settingsForm" class="settings-form">
+        <div class="settings-savebar">
+          <span id="settingsDirty" class="muted"></span>
+          <button class="btn primary" type="submit">저장 및 반영</button>
+        </div>
+
+        <section class="settings-card">
+          <header class="settings-card-head">
+            <h2>수집 · 스케줄러</h2>
+            <p class="field-help">자동 실행, 동시성, 로그 보관, 썸네일 표시</p>
+          </header>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span>Auto refresh</span>
+              <input type="checkbox" id="autoRefreshToggle">
+            </label>
+            <label class="setting-row">
+              <span>Max logs</span>
+              <input type="number" id="maxLogCountInput" value="100" min="10" max="1000">
+            </label>
+            <label class="setting-row">
+              <span>Log level</span>
+              <select id="systemLogLevelSelect">
+                <option>DEBUG</option>
+                <option selected>INFO</option>
+                <option>SYSTEM</option>
+                <option>GDL</option>
+                <option>DB</option>
+                <option>SUCCESS</option>
+                <option>ERROR</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span class="label-help">시각 보정 버퍼 (offset_buffer, 시간)<span class="help-icon" role="button" tabindex="0" data-help="증분 수집 기준 시점을 지정한 시간만큼 앞당겨(여유 있게) 수집합니다. 시계 차이/게시 지연을 보정합니다.">?</span></span>
+              <input type="number" id="offsetBufferInput" value="0" step="0.5" min="0">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">스케줄러 자동 실행<span class="help-icon" role="button" tabindex="0" data-help="켜면 등록된 주기(시간마다/AI)에 따라 소스를 자동 수집합니다.">?</span></span>
+              <input type="checkbox" id="schedulerEnabledToggle">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">최대 동시 수집 개수 (Concurrency)<span class="help-icon" role="button" tabindex="0" data-help="동시에 실행되는 수집 작업의 최대 개수입니다. 너무 높으면 사이트 한도 초과 위험이 커집니다.">?</span></span>
+              <input type="number" id="maxConcurrencyInput" value="3" min="1" max="20">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">DB 그리드/컴팩트 썸네일 표시<span class="help-icon" role="button" tabindex="0" data-help="DB 탭의 그리드/컴팩트 보기에서 다운로드 이미지 썸네일을 표시합니다.">?</span></span>
+              <input type="checkbox" id="dbThumbnailsToggle" checked>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <header class="settings-card-head">
+            <h2>감시 브라우저 (Reactive Watcher)</h2>
+            <p class="field-help">알림 감시용 브라우저 세션·채널·스텔스</p>
+          </header>
+          <p id="watcherStateText" class="muted">중지됨</p>
+          <div class="watcher-actions">
+            <button id="watcherOpenBtn" class="btn primary" type="button">🖥 감시 브라우저 열기 (UI 표시 모드)</button>
+            <button id="watcherHeadlessBtn" class="btn" type="button">🌙 백그라운드(Headless)로 전환</button>
+            <button id="watcherStopBtn" class="btn danger" type="button">■ 감시 중지</button>
+          </div>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span>감시 유지 (앱 재시작 시 자동 시작)</span>
+              <input type="checkbox" id="watcherAutoStartToggle">
+            </label>
+            <label class="setting-row">
+              <span>브라우저 채널 (로그인/감시)</span>
+              <select id="browserChannelSelect">
+                <option value="auto">자동 (Chrome → Edge → Chromium)</option>
+                <option value="chrome">Google Chrome</option>
+                <option value="msedge">Microsoft Edge</option>
+                <option value="chromium">번들 Chromium</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span>자동화 탐지 회피 (스텔스)</span>
+              <input type="checkbox" id="stealthToggle" checked>
+            </label>
+            <label class="setting-row">
+              <span>시작 시 이전 브라우저 자동 정리</span>
+              <input type="checkbox" id="browserCleanupToggle" checked>
+            </label>
+          </div>
+          <p id="watcherHint" class="field-help">최초 1회는 '감시 브라우저 열기'로 로그인/캡차를 해결한 뒤 백그라운드로 전환하세요.</p>
+        </section>
+
+        <section class="settings-card">
+          <header class="settings-card-head">
+            <h2>아이템 전역 디폴트</h2>
+            <p class="field-help">새 폴더/소스의 기본값 + 상속 판정 기준</p>
+          </header>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span>수집 주기 옵션</span>
+              <select id="itemCycOptionSelect">
+                <option value="0">수동</option>
+                <option value="1">시간마다</option>
+                <option value="2">AI</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span>주기 (시간)</span>
+              <input type="number" id="itemCycInput" value="1" min="1">
+            </label>
+            <label class="setting-row">
+              <span>로그 레벨</span>
+              <select id="itemLogLevelSelect">
+                <option>DEBUG</option>
+                <option selected>INFO</option>
+                <option>SYSTEM</option>
+                <option>GDL</option>
+                <option>DB</option>
+                <option>SUCCESS</option>
+                <option>ERROR</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span class="label-help">오류 재시도 간격 기본값 (초)<span class="help-icon" role="button" tabindex="0" data-help="동일 오류가 2번 나오기 전까지 재시도할 때의 대기 간격(초)입니다.">?</span></span>
+              <input type="number" id="itemRetryDelayInput" value="10" min="0" max="3600">
+            </label>
+            <label class="setting-row">
+              <span>config 기본 수집 시점 범위</span>
+              <select id="itemConfigDateMode">
+                <option value="incremental">증분</option>
+                <option value="full">전체</option>
+                <option value="fixed">지정 시점</option>
+              </select>
+            </label>
+          </div>
+          <label class="setting-row setting-row-wide">
+            <span class="label-help">config 기본 args (줄바꿈/쉼표 구분)<span class="help-icon" role="button" tabindex="0" data-help="gallery-dl에 그대로 전달되는 추가 실행 옵션입니다. 새 아이템 기본값으로 쓰이며, 비우면 추가 옵션이 없습니다.">?</span></span>
+            <textarea id="itemConfigArgs" rows="2"></textarea>
+          </label>
+        </section>
+
+        <section class="settings-card">
+          <header class="settings-card-head">
+            <h2>gallery-dl 기본 세팅</h2>
+            <p class="field-help">수집 시 적용되는 gdl 옵션 기본값(아이템에서 개별 override 가능)</p>
+          </header>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span class="label-help">수집 시점 기준<span class="help-icon" role="button" tabindex="0" data-help="필터식: 게시물 date를 초 단위로 비교(정밀, 권장). date-after: 날짜(일) 단위로 이후 게시물만.">?</span></span>
+              <select id="itemDateBasisSelect">
+                <option value="filter">필터식 (초 단위, 권장)</option>
+                <option value="date-after">--date-after (일 단위)</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span class="label-help">sleep min (초)<span class="help-icon" role="button" tabindex="0" data-help="파일 다운로드 전 대기 시간의 최소값. 다운로드 부하를 분산합니다.">?</span></span>
+              <input type="number" id="itemSleepMinInput" value="1.3" min="0" step="0.1">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">sleep max (초)<span class="help-icon" role="button" tabindex="0" data-help="파일 다운로드 전 대기 시간의 최대값. min~max 사이에서 무작위로 대기합니다.">?</span></span>
+              <input type="number" id="itemSleepMaxInput" value="8" min="0" step="0.1">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">sleep-request min (초)<span class="help-icon" role="button" tabindex="0" data-help="HTTP 요청 사이 대기 최소값. 서버 레이트리밋(88/429) 회피용입니다.">?</span></span>
+              <input type="number" id="itemSleepReqMinInput" value="5" min="0" step="0.1">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">sleep-request max (초)<span class="help-icon" role="button" tabindex="0" data-help="HTTP 요청 사이 대기 최대값. min~max 사이에서 무작위로 대기합니다.">?</span></span>
+              <input type="number" id="itemSleepReqMaxInput" value="8" min="0" step="0.1">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">retries<span class="help-icon" role="button" tabindex="0" data-help="실패한 HTTP 요청의 최대 재시도 횟수(gallery-dl --retries).">?</span></span>
+              <input type="number" id="itemRetriesInput" value="4" min="0" max="100">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">timeout (초)<span class="help-icon" role="button" tabindex="0" data-help="HTTP 연결 타임아웃(초). gallery-dl --http-timeout 에 대응합니다.">?</span></span>
+              <input type="number" id="itemTimeoutInput" value="30" min="0" step="1">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">limit-rate<span class="help-icon" role="button" tabindex="0" data-help="최대 다운로드 속도(예: 500k, 2.5M). 비우면 제한 없음.">?</span></span>
+              <input type="text" id="itemLimitRateInput" placeholder="500k">
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <header class="settings-card-head">
+            <h2>KDE 예측 학습</h2>
+            <p class="field-help">기존 다운로드 파일로 업로드 패턴 재학습</p>
+          </header>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span>첫 수집 시 과거 파일 자동 재학습</span>
+              <input type="checkbox" id="kdeBackfillToggle" checked>
+            </label>
+            <label class="setting-row">
+              <span>이벤트 클러스터 기준 (분)</span>
+              <input type="number" id="kdeClusterInput" value="5" min="0" max="1440">
+            </label>
+          </div>
+        </section>
+      </form>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <div class="nav-track" id="navTrack" data-index="0">
+      <button class="nav-btn active" data-tab="home" type="button">Home</button>
+      <button class="nav-btn" data-tab="db" type="button">DB</button>
+      <button class="nav-btn" data-tab="profiles" type="button">Profiles</button>
+      <button class="nav-btn" data-tab="rules" type="button">Rules</button>
+      <button class="nav-btn" data-tab="log" type="button">Log</button>
+      <button class="nav-btn" data-tab="settings" type="button">Settings</button>
+      <span class="nav-ball" aria-hidden="true"></span>
+    </div>
+  </nav>
+
+  <div id="entityModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-head-row">
+        <h3 id="entityModalTitle">편집</h3>
+        <button id="entityCollectAllBtn" class="btn btn-sm" type="button" title="저장된 범위를 무시하고 전부 수집" hidden>🌐 전체 수집</button>
+      </div>
+      <div id="entityTabs" class="modal-tabs" role="tablist">
+        <button class="modal-tab active" type="button" data-modal-tab="basic">기본</button>
+        <button class="modal-tab" type="button" data-modal-tab="collect">수집</button>
+        <button class="modal-tab" type="button" data-modal-tab="profile">프로파일</button>
+        <button class="modal-tab" type="button" data-modal-tab="alt">대체경로</button>
+        <button class="modal-tab" type="button" data-modal-tab="log">로그</button>
+      </div>
+
+      <div class="modal-pane active" data-pane="basic">
+        <div class="form-group">
+          <label for="entityName">이름</label>
+          <input type="text" id="entityName" placeholder="이름을 입력하세요">
+        </div>
+        <div class="form-group" id="entityUrlGroup">
+          <label for="entityUrl">URL</label>
+          <input type="text" id="entityUrl" placeholder="https://example.com/user">
+        </div>
+        <div class="form-row" id="entitySiteKeyGroup">
+          <div class="form-group">
+            <label for="entitySite">Site</label>
+            <input type="text" id="entitySite" placeholder="twitter, pixiv ..." list="siteOptions" autocomplete="off">
+            <p id="entitySiteHint" class="site-hint muted hidden" role="button" tabindex="0"></p>
+          </div>
+          <div class="form-group">
+            <label for="entityKey">Key</label>
+            <input type="text" id="entityKey" placeholder="사용자 ID / 태그">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="entityParent">소속 폴더</label>
+          <select id="entityParent"></select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="entityCycOption">수집 주기 옵션</label>
+            <select id="entityCycOption">
+              <option value="0">수동</option>
+              <option value="1">시간마다</option>
+              <option value="2">AI</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="entityCyc">주기 (시간)</label>
+            <input type="number" id="entityCyc" value="1" min="1">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="entityLogLevel">로그 레벨</label>
+          <select id="entityLogLevel">
+            <option>DEBUG</option>
+            <option selected>INFO</option>
+            <option>SYSTEM</option>
+            <option>GDL</option>
+            <option>DB</option>
+            <option>SUCCESS</option>
+            <option>ERROR</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="entityTags">태그 (쉼표 구분, .ih / .iih 유전 접미사 지원)</label>
+          <input type="text" id="entityTags" placeholder="예: news.ih, adult.iih, personal">
+        </div>
+        <div class="form-group">
+          <label for="entityMemo">메모</label>
+          <textarea id="entityMemo"></textarea>
+        </div>
+      </div>
+
+      <div class="modal-pane" data-pane="collect">
+        <div class="form-group" id="entityDateScopeWrap">
+          <label class="label-help" for="entityDateMode">수집 시점 범위<span class="help-icon" role="button" tabindex="0" data-help="증분: 이전 성공/파일 시점부터. 전체: 범위 없이 모두. 지정 시점: 입력한 시각 이후만 수집.">?</span></label>
+          <select id="entityDateMode">
+            <option value="incremental">증분 (설정된 기준 시점부터)</option>
+            <option value="full">전체 (범위 없이 모두)</option>
+            <option value="fixed">지정 시점 이후</option>
+          </select>
+          <input type="datetime-local" id="entityDateFixed" class="hidden" step="1">
+        </div>
+        <div class="form-group" id="entityRetryWrap">
+          <label class="label-help" for="entityRetryDelay">오류 재시도 간격 (초)<span class="help-icon" role="button" tabindex="0" data-help="동일 오류가 2번 나오기 전까지 최대 2회 재시도합니다(프로파일 할당량 이슈는 제외).">?</span></label>
+          <input type="number" id="entityRetryDelay" value="10" min="0" max="3600">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="label-help" for="entityDateBasis">수집 시점 기준<span class="help-icon" role="button" tabindex="0" data-help="필터식: 게시물 date를 초 단위로 비교(정밀). date-after: 날짜(일) 단위.">?</span></label>
+            <select id="entityDateBasis">
+              <option value="filter">필터식 (초 단위)</option>
+              <option value="date-after">--date-after (일 단위)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="label-help" for="entityRetries">gdl retries<span class="help-icon" role="button" tabindex="0" data-help="이 소스에 적용할 HTTP 최대 재시도 횟수. 비우면 전역 기본값 사용.">?</span></label>
+            <input type="number" id="entityRetries" min="0" max="100" placeholder="기본값">
+          </div>
+          <div class="form-group">
+            <label class="label-help" for="entityTimeout">gdl timeout (초)<span class="help-icon" role="button" tabindex="0" data-help="HTTP 연결 타임아웃(초). 비우면 전역 기본값 사용.">?</span></label>
+            <input type="number" id="entityTimeout" min="0" step="1" placeholder="기본값">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="label-help" for="entitySleepReqMin">sleep-request min (초)<span class="help-icon" role="button" tabindex="0" data-help="HTTP 요청 간 대기 최소값(레이트리밋 회피).">?</span></label>
+            <input type="number" id="entitySleepReqMin" min="0" step="0.1" placeholder="기본값">
+          </div>
+          <div class="form-group">
+            <label class="label-help" for="entitySleepReqMax">sleep-request max (초)<span class="help-icon" role="button" tabindex="0" data-help="HTTP 요청 간 대기 최대값. min~max 무작위 대기.">?</span></label>
+            <input type="number" id="entitySleepReqMax" min="0" step="0.1" placeholder="기본값">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label-help" for="entityArgs">추가 실행 옵션 (args, 줄바꿈/쉼표 구분)<span class="help-icon" role="button" tabindex="0" data-help="이 소스에만 적용되는 gallery-dl 추가 옵션입니다. 비우면 전역 기본값(없음) 사용.">?</span></label>
+          <textarea id="entityArgs" rows="2"></textarea>
+        </div>
+      </div>
+
+      <div class="modal-pane" data-pane="profile">
+        <div class="form-group" id="entityProfileWrap">
+          <label id="entityProfileModeLabel" class="profile-mode-toggle" role="button" tabindex="0" title="클릭하여 단일/합동 프로파일 전환">합동 프로파일 (Profile Group)</label>
+          <select id="entityProfileGroup"></select>
+          <select id="entityProfile" class="hidden"></select>
+        </div>
+      </div>
+
+      <div class="modal-pane" data-pane="alt">
+        <div class="form-group" id="entityAltWrap">
+          <label>대체경로 (alt=구조유지 / cmb=평탄화 병합)</label>
+          <div class="alt-block">
+            <div class="alt-row-head"><span>alt 경로</span><button id="entityAltAdd" class="btn btn-sm" type="button">＋</button></div>
+            <div id="entityAltList" class="alt-list"></div>
+          </div>
+          <div class="alt-block">
+            <div class="alt-row-head"><span>cmb 경로</span><button id="entityCmbAdd" class="btn btn-sm" type="button">＋</button></div>
+            <div id="entityCmbList" class="alt-list"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="entityAltMode">방식</label>
+              <select id="entityAltMode">
+                <option value="hardlink">하드링크 (기본)</option>
+                <option value="copy">일반 복사</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="entityAltSchedule">갱신 시점</label>
+              <select id="entityAltSchedule">
+                <option value="manual">수동만</option>
+                <option value="on_run">실행 시마다</option>
+                <option value="n_hours">N시간마다</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="entityAltInterval">N (시간)</label>
+              <input type="number" id="entityAltInterval" min="0" step="1" placeholder="6">
+            </div>
+          </div>
+          <p id="entityAltStatus" class="field-help"></p>
+          <div class="alt-actions">
+            <button id="entityAltSync" class="btn btn-sm primary" type="button">🔗 지금 동기화</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-pane" data-pane="log">
+        <div class="form-group" id="entityLogWrap">
+          <div class="log-modal-head">
+            <label>최근 오류 로그</label>
+            <span class="log-modal-actions">
+              <button id="entityLogRefresh" class="btn btn-sm" type="button">↻</button>
+            </span>
+          </div>
+          <div id="entityLogList" class="entity-log-list"><p class="muted">불러오는 중...</p></div>
+        </div>
+      </div>
+
+      <p id="entitySavePath" class="save-path-hint muted"></p>
+      <div class="modal-foot">
+        <button id="entityCancel" class="btn" type="button">취소</button>
+        <button id="entitySave" class="btn primary" type="button">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="colSelectModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>컬럼 표시 / 순서</h3>
+      <p class="hint muted">드래그로 순서를 변경하고 체크로 표시 여부를 지정합니다. (헤더 450ms 꾹 누르기로 열기)</p>
+      <div id="colListContainer" class="col-list"></div>
+      <div class="modal-foot">
+        <button id="colSelectCancel" class="btn" type="button">취소</button>
+        <button id="colSelectSave" class="btn primary" type="button">적용</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="profileModal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="profileModalTitle">단일 프로파일</h3>
+      <h4 class="modal-section">기본 정보</h4>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="profileName">이름</label>
+          <input type="text" id="profileName" placeholder="계정 별칭">
+        </div>
+        <div class="form-group">
+          <label for="profileSite">사이트</label>
+          <input type="text" id="profileSite" placeholder="twitter, pixiv ..." list="siteOptions" autocomplete="off">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="profileKey">키 (Key)</label>
+          <input type="text" id="profileKey" placeholder="계정 ID / 핸들" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="profileUrl">링크 (Link)</label>
+          <input type="text" id="profileUrl" placeholder="https://..." autocomplete="off">
+        </div>
+      </div>
+      <h4 class="modal-section">세션 · 프록시</h4>
+      <div class="form-group">
+        <label for="profileContextDir">세션 저장 경로 (context_dir)</label>
+        <input type="text" id="profileContextDir" placeholder="비워두면 자동 생성 (data/profiles/prof_{id})">
+      </div>
+      <div class="form-group">
+        <label for="profileProxy">프록시 URL (선택)</label>
+        <input type="text" id="profileProxy" placeholder="http://user:pass@host:port">
+      </div>
+      <h4 class="modal-section">상태 · 학습</h4>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="profileStatus">상태</label>
+          <select id="profileStatus">
+            <option value="정상">정상</option>
+            <option value="차단">차단</option>
+            <option value="잠금">잠금</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="profileCapacity">학습 한도</label>
+          <input type="number" id="profileCapacity" min="1" value="500">
+        </div>
+        <div class="form-group">
+          <label for="profileCooldownMinutes">쿨다운 기준(분)</label>
+          <input type="number" id="profileCooldownMinutes" min="1" value="15">
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button id="profileCancel" class="btn" type="button">취소</button>
+        <button id="profileSave" class="btn primary" type="button">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="groupModal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="groupModalTitle">합동 프로파일</h3>
+      <h4 class="modal-section">기본 정보</h4>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="groupName">이름</label>
+          <input type="text" id="groupName" placeholder="합동 그룹 이름">
+        </div>
+        <div class="form-group">
+          <label for="groupSite">사이트</label>
+          <input type="text" id="groupSite" placeholder="twitter ..." list="siteOptions" autocomplete="off">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="groupKey">키 (Key)</label>
+          <input type="text" id="groupKey" placeholder="계정 ID / 핸들" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="groupUrl">링크 (Link)</label>
+          <input type="text" id="groupUrl" placeholder="https://..." autocomplete="off">
+        </div>
+      </div>
+      <h4 class="modal-section">동시성 · 한도</h4>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="groupConcurrent">동시 실행 수</label>
+          <input type="number" id="groupConcurrent" min="1" value="1">
+        </div>
+        <div class="form-group">
+          <label for="groupPace">pace (초)</label>
+          <input type="number" id="groupPace" min="0" step="0.5" value="0">
+        </div>
+      </div>
+      <label class="setting-row">
+        <span>사이트 공유 한도로 관리 (직렬화 + 그룹 쿨다운)</span>
+        <input type="checkbox" id="groupShared" checked>
+      </label>
+      <h4 class="modal-section">멤버</h4>
+      <div class="form-group">
+        <label>포함할 단일 프로파일</label>
+        <div id="groupProfileList" class="group-profile-list"></div>
+      </div>
+      <div class="modal-foot">
+        <button id="groupCancel" class="btn" type="button">취소</button>
+        <button id="groupSave" class="btn primary" type="button">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="ruleModal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="ruleModalTitle">반응형 규칙</h3>
+      <h4 class="modal-section">기본 정보</h4>
+      <div class="form-group">
+        <label for="ruleName">규칙 이름</label>
+        <input type="text" id="ruleName" placeholder="예: 특정 작가 커미션 오픈 알림">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="ruleSite">대상 사이트</label>
+          <input type="text" id="ruleSite" placeholder="twitter, pixiv ..." list="siteOptions" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="ruleFolder">대상 저장 폴더</label>
+          <select id="ruleFolder"></select>
+        </div>
+      </div>
+      <h4 class="modal-section">감지 패턴</h4>
+      <div class="form-group">
+        <label for="ruleKeywords">감지 키워드 / 패턴 (줄바꿈 또는 쉼표 구분)</label>
+        <textarea id="ruleKeywords" placeholder="COMMISSION OPEN&#10;#커미션&#10;/open\s+commission/i"></textarea>
+      </div>
+      <label class="setting-row">
+        <span>활성화</span>
+        <input type="checkbox" id="ruleActive" checked>
+      </label>
+      <div class="modal-foot">
+        <button id="ruleCancel" class="btn" type="button">취소</button>
+        <button id="ruleSave" class="btn primary" type="button">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <datalist id="siteOptions"></datalist>
+
+  <div id="imageLightbox" class="image-lightbox hidden" role="dialog" aria-label="이미지 미리보기">
+    <img alt="" draggable="false">
+  </div>
+
+  <div id="helpPopover" class="help-popover hidden" role="tooltip"></div>
+
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <script src="js/vendor/Sortable.min.js?v=38"></script>
+  <script src="js/api.js?v=38"></script>
+  <script src="js/sites.js?v=38"></script>
+  <script src="js/help.js?v=39"></script>
+  <script src="js/urlsync.js?v=38"></script>
+  <script src="js/nav.js?v=38"></script>
+  <script src="js/modals.js?v=38"></script>
+  <script src="js/db.js?v=39"></script>
+  <script src="js/profiles.js?v=38"></script>
+  <script src="js/rules.js?v=38"></script>
+  <script src="js/watcher.js?v=38"></script>
+  <script src="js/logs.js?v=38"></script>
+  <script src="js/home.js?v=38"></script>
+  <script src="js/app.js?v=39"></script>
+</body>
+</html>
