@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 import sys
 import threading
@@ -5,11 +6,11 @@ import threading
 import uvicorn
 
 from core.database import init_db
-from core.utils import local_ipv4_addresses
+from core.utils import local_ipv4_addresses, resource_root
 from server import app, wait_for_server
 
 HOST = "0.0.0.0"
-PORT = 17363
+PORT = int(os.environ.get("LAF_PORT", "17363"))
 WINDOW_URL = "http://127.0.0.1:" + str(PORT)
 
 
@@ -54,8 +55,13 @@ def main() -> None:
     import webview
 
     webview.create_window("LAFhvst", url=WINDOW_URL, width=1100, height=740, resizable=True)
-    webview.start()
+    icon_path = os.path.join(resource_root(), "assets", "icon.png")
+    if os.path.isfile(icon_path):
+        webview.start(icon=icon_path)
+    else:
+        webview.start()
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

@@ -33,10 +33,15 @@ _ERROR_HINTS = (
 
 
 def gallery_dl_path() -> str | None:
-    scripts_dir = os.path.dirname(os.path.abspath(sys.executable))
-    local = os.path.join(scripts_dir, "gallery-dl.exe" if os.name == "nt" else "gallery-dl")
-    if os.path.isfile(local):
-        return local
+    exe_name = "gallery-dl.exe" if os.name == "nt" else "gallery-dl"
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(sys.executable)), exe_name),
+        os.path.join(utils.resource_root(), exe_name),
+        os.path.join(utils.project_root(), exe_name),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
     return shutil.which("gallery-dl")
 
 

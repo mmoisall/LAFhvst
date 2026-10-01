@@ -2,6 +2,7 @@ import json
 import os
 import re
 import socket
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -35,8 +36,27 @@ _INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
+def is_frozen() -> bool:
+    """PyInstaller 등으로 패키징된 실행 파일인지 여부."""
+    return bool(getattr(sys, "frozen", False))
+
+
 def project_root() -> str:
+    """쓰기 가능한 데이터 루트.
+
+    - 소스 실행: 저장소 루트
+    - 패키징 실행: 실행 파일이 있는 폴더(포터블)
+    """
+    if is_frozen():
+        return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def resource_root() -> str:
+    """읽기 전용 동봉 리소스(frontend/assets 등) 루트."""
+    if is_frozen():
+        return getattr(sys, "_MEIPASS", project_root())
+    return project_root()
 
 
 def ensure_dir(path: str) -> str:

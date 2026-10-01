@@ -48,9 +48,8 @@ def proactor_loop_factory():
     return loop
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-THUMBNAIL_DIR = os.path.join(BASE_DIR, "data", "thumbnails")
+FRONTEND_DIR = os.path.join(utils.resource_root(), "frontend")
+THUMBNAIL_DIR = os.path.join(utils.project_root(), "data", "thumbnails")
 THUMBNAIL_MAX_PX = 400
 
 

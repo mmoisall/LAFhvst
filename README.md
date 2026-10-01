@@ -39,6 +39,23 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 
 실행하면 로컬(`http://127.0.0.1:17363`) 및 동일 네트워크 주소가 콘솔에 표시된다.
 
+## EXE (Releases)
+
+[Releases](https://github.com/mmoisall/LAFhvst/releases)에서 `LAFhvst-<버전>-win64.zip`을 받아
+압축을 풀고 `LAFhvst.exe`를 실행한다. 데이터(`lafhvst.db`, `data/`, `log/`)는 exe 옆에 생성되므로
+폴더째로 이동/백업할 수 있다.
+
+- 요구 환경: Windows 10/11, WebView2 런타임(기본 탑재)
+- 프로필 로그인/감시 기능: 시스템 Chrome 또는 Edge 필요
+- 픽시브 ugoira(webm) 변환: 시스템 ffmpeg 필요(없으면 해당 변환만 생략)
+
+소스에서 직접 빌드:
+
+```powershell
+./build.ps1 -Version 0.1.0
+# 산출물: dist/LAFhvst-0.1.0-win64.zip
+```
+
 ## 데이터 및 설정
 
 최초 실행 시 아래가 자동 생성된다.
@@ -81,7 +98,10 @@ LAFhvst/
 │  ├─ browser_manager.py / browser_watcher.py
 │  ├─ alt_paths.py    # 대체경로 동기화
 │  ├─ kde.py, sites.py, site_url.py, utils.py, error_logger.py
-└─ frontend/          # 정적 웹 UI (HTML/CSS/JS)
+├─ frontend/          # 정적 웹 UI (HTML/CSS/JS)
+├─ assets/            # 아이콘 (icon.png, LAFhvst.ico)
+├─ packaging/         # PyInstaller 스펙 / 아이콘 생성
+└─ build.ps1          # EXE 빌드 스크립트
 ```
 
 > 구형 HVST 이관 도구는 별도 저장소 [mmoisall/LAF](https://github.com/mmoisall/LAF) 에 있습니다.

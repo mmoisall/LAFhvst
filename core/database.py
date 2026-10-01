@@ -3,10 +3,10 @@ import os
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
+from . import utils
 from .models import Base
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, "lafhvst.db")
+DB_PATH = os.path.join(utils.project_root(), "lafhvst.db")
 DB_URL = "sqlite:///" + DB_PATH.replace(os.sep, "/")
 
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False}, future=True)

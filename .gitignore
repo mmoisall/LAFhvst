@@ -4,6 +4,10 @@ __pycache__/
 .venv/
 venv/
 
+# Build artifacts
+build/
+dist/
+
 # Database (accounts / profiles)
 *.db
 *.db-shm
