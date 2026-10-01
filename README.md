@@ -14,7 +14,7 @@ FastAPI + pywebview 기반의 소셜 미디어 아카이빙 엔진. [gallery-dl]
 - **대체경로(alt/cmb)**: 원본 폴더를 하드링크/복사로 동기화, 평탄 병합, prune
 - **로그/오류 분석**: gallery-dl 오류 로그 수집·분류·해결 상태 관리
 - **탐색기(Explorer)**: 서버 파일 탐색, 배치 이동/편집/삭제/실행, 썸네일
-- **HVST 이관 도구**: 구형 `hvst.db` → `lafhvst.db` 마이그레이션 CLI/UI
+- **HVST 이관**: 구형 `hvst.db` → `lafhvst.db` 이관 도구는 별도 저장소 [mmoisall/LAF](https://github.com/mmoisall/LAF) 참고
 
 ## 요구 사항
 
@@ -58,19 +58,13 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 > `data/`, `log/`, `*.db*`, 다운로드 결과물은 `.gitignore`로 제외된다. 쿠키·세션 등 자격증명이
 > 포함되므로 절대 커밋하지 않는다.
 
-## HVST 이관 (선택)
+## 구형 HVST 이관 (별도 저장소)
 
-구형 HVST 데이터베이스를 현재 스키마로 이관한다. 자격증명은 기본 제외된다.
+구형 HVST(=`LAFhvst old`)의 `hvst.db` 를 현재 `lafhvst.db` 로 이관하는 도구는
+별도 저장소 **mmoisall/LAF** 에서 관리한다.
 
-```bash
-python tools/import_hvst.py --db "C:\path\to\hvst.db" --dry-run
-python tools/import_hvst.py --db "C:\path\to\hvst.db" --apply
-```
-
-- `--settings` 로 `hvst_setting.json` 경로 지정 가능
-- `--include-secrets`, `--exclude-columns`, `--exclude-rows` 지원
-- 경로 미지정 시 환경변수 `HVST_DB`, `HVST_SETTINGS` 를 사용
-- UI 버전: `python tools/hvst_import/app.py`
+- 저장소: https://github.com/mmoisall/LAF (`hvst_import/`)
+- 사용: `python import_hvst.py --lafhvst "<LAFhvst 경로>" --db "<hvst.db 경로>" --apply`
 
 ## 디렉터리 구조
 
@@ -87,9 +81,10 @@ LAFhvst/
 │  ├─ browser_manager.py / browser_watcher.py
 │  ├─ alt_paths.py    # 대체경로 동기화
 │  ├─ kde.py, sites.py, site_url.py, utils.py, error_logger.py
-├─ frontend/          # 정적 웹 UI (HTML/CSS/JS)
-└─ tools/             # HVST 이관 도구
+└─ frontend/          # 정적 웹 UI (HTML/CSS/JS)
 ```
+
+> 구형 HVST 이관 도구는 별도 저장소 [mmoisall/LAF](https://github.com/mmoisall/LAF) 에 있습니다.
 
 ## 라이선스
 
