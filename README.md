@@ -1,10 +1,170 @@
 # LAFhvst
 
+<a id="english"></a>
+**English** | [한국어](#korean)
+
+---
+
+## English
+
+A social media archiving engine built on FastAPI + pywebview. It uses
+[gallery-dl](https://github.com/mikf/gallery-dl) as a backend to periodically collect media from
+multiple sites, and manages the folder/source tree, profiles, scheduler, watcher, logs, and
+alternate-path sync from a single local web UI.
+
+### Features
+
+- **Source / Folder management**: manage site+key sources and the folders that group them in a tree
+- **Scheduler**: periodic runs, cycles, relearn-based upload-cycle estimation
+- **Profiles**: per-site login sessions (Playwright persistent context) and profile groups
+- **Watcher**: periodically refreshes site sessions and collects events
+- **Reactive Rules**: keyword-pattern based auto-classification rules
+- **Alternate paths (alt/cmb)**: sync original folders via hardlink/copy, flat merge, prune
+- **Log / error analysis**: collect, classify, and track resolution of gallery-dl error logs
+- **Explorer**: server file browsing, batch move/edit/delete/run, thumbnails
+- **HVST migration**: the old `hvst.db` → `lafhvst.db` tool lives in a separate repo
+  [mmoisall/LAF](https://github.com/mmoisall/LAF)
+
+### Requirements
+
+- Windows (pywebview desktop window), Python 3.11+
+- Dependencies: see `requirements.txt` (FastAPI, uvicorn, pywebview, SQLAlchemy, APScheduler,
+  gallery-dl, playwright, Pillow)
+
+### Install
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+playwright install chromium
+```
+
+### Run
+
+```bash
+python main.py            # desktop window + local server (default port 17363)
+python main.py --serve    # server only, no window (or LAF_NO_GUI=1)
+```
+
+On start, the local (`http://127.0.0.1:17363`) and same-network addresses are printed to the console.
+
+### EXE (Releases)
+
+Download `LAFhvst-<version>-win64.zip` from
+[Releases](https://github.com/mmoisall/LAFhvst/releases), unzip and run. Data (`lafhvst.db`,
+`data/`, `log/`) is created next to the exe, so you can move/back up the whole folder.
+
+| Executable | Description |
+| --- | --- |
+| `LAFhvst.exe` | Desktop window (GUI). Tray support |
+| `LAFhvst-server.exe` | Windowless server (console). Shows banner/logs, exit with `Ctrl+C` |
+| `gallery-dl.exe` | Bundled gallery-dl (used automatically) |
+
+- Server port: `--port 17363` or the `LAF_PORT` env var
+- Requirements: Windows 10/11, WebView2 runtime (preinstalled)
+- Profile login / watcher: system Chrome or Edge
+- Pixiv ugoira (webm) conversion: system ffmpeg (only that step is skipped if missing)
+
+#### Tray / Server mode
+
+- Window **X (close)** → hides to tray instead of quitting; the server keeps running
+- Home top-right **"Server mode"** button → same (hide to tray)
+- Tray icon **right-click** → `Open` / `Server address` / `Quit`
+- Fully quit via the tray menu **Quit**
+- Settings → "Close to tray (keep server)" toggles this behavior (off = X quits)
+
+Build from source:
+
+```powershell
+./build.ps1 -Version 0.1.2
+# output: dist/LAFhvst-0.1.2-win64.zip
+```
+
+### Updates
+
+On startup the app checks GitHub Releases for a new version. See **Settings → Updates**:
+
+- **Check for updates on start** (on by default)
+- **Auto update (download & install)**: automatically download, install, and restart
+  (packaged exe only)
+- **Check now** button
+
+When a new version exists, a banner appears on the Home screen and can be applied with
+**Install update**. The update quits the app, replaces files, and restarts; data (`data/`,
+`lafhvst.db`, `log/`) is preserved. When running from source, only the check works and install is
+disabled.
+
+### Data & settings
+
+Created automatically on first run.
+
+| Path | Description |
+| --- | --- |
+| `lafhvst.db` | SQLite database (accounts / profiles / sources / logs) |
+| `data/gallery-dl.conf` | App-specific gallery-dl config (seeded from global config, secrets stripped) |
+| `data/profiles/` | Playwright login profiles (contains cookies/sessions) |
+| `data/watcher/` | Per-site session watch directory |
+| `data/thumbnails/` | Thumbnail cache |
+| `log/` | gallery-dl logs |
+
+Copy `gallery-dl.conf.example` to `data/gallery-dl.conf` to preset per-site directory/filename
+rules. It is auto-created on first run even if you don't copy it.
+
+> `data/`, `log/`, `*.db*`, and downloaded media are excluded via `.gitignore`. They contain
+> credentials (cookies/sessions) — never commit them.
+
+### Legacy HVST migration (separate repo)
+
+The tool that migrates the legacy HVST (`LAFhvst old`) `hvst.db` to the current `lafhvst.db` is
+maintained in a separate repository **mmoisall/LAF**.
+
+- Repo: https://github.com/mmoisall/LAF (`hvst_import/`)
+- Usage: `python import_hvst.py --lafhvst "<path to LAFhvst>" --db "<path to hvst.db>" --apply`
+
+### Directory structure
+
+```
+LAFhvst/
+├─ main.py            # entry point (server thread + pywebview window)
+├─ server.py          # FastAPI app and REST API
+├─ scheduler.py       # APScheduler-based scheduling
+├─ requirements.txt
+├─ core/              # domain logic
+│  ├─ models.py       # SQLAlchemy models
+│  ├─ database.py     # engine / session / migrations
+│  ├─ gdl_executor.py # gallery-dl execution/config
+│  ├─ browser_manager.py / browser_watcher.py
+│  ├─ alt_paths.py    # alternate-path sync
+│  ├─ app_control.py  # GUI tray / window & server lifecycle
+│  ├─ updater.py      # GitHub Releases update check/apply
+│  ├─ version.py      # app version
+│  ├─ kde.py, sites.py, site_url.py, utils.py, error_logger.py
+├─ frontend/          # static web UI (HTML/CSS/JS)
+├─ assets/            # icons (icon.png, LAFhvst.ico)
+├─ packaging/         # PyInstaller spec / icon generation
+└─ build.ps1          # EXE build script
+```
+
+> The legacy HVST migration tool lives in a separate repo
+> [mmoisall/LAF](https://github.com/mmoisall/LAF).
+
+### License
+
+[MIT](LICENSE) © 2026 mmoisall
+
+---
+
+<a id="korean"></a>
+[English](#english) | **한국어**
+
+## 한국어
+
 FastAPI + pywebview 기반의 소셜 미디어 아카이빙 엔진. [gallery-dl](https://github.com/mikf/gallery-dl)을
 백엔드로 사용해 여러 사이트의 미디어를 주기적으로 수집하고, 폴더/소스 트리, 프로필, 스케줄러,
 감시(watcher), 로그, 대체경로 동기화를 하나의 로컬 웹 UI에서 관리한다.
 
-## 주요 기능
+### 주요 기능
 
 - **소스/폴더 관리**: 사이트·키 기반 소스와 이를 묶는 폴더를 트리로 관리
 - **스케줄러**: 주기 실행, 사이클, 재학습(relearn) 기반 업로드 주기 추정
@@ -16,12 +176,12 @@ FastAPI + pywebview 기반의 소셜 미디어 아카이빙 엔진. [gallery-dl]
 - **탐색기(Explorer)**: 서버 파일 탐색, 배치 이동/편집/삭제/실행, 썸네일
 - **HVST 이관**: 구형 `hvst.db` → `lafhvst.db` 이관 도구는 별도 저장소 [mmoisall/LAF](https://github.com/mmoisall/LAF) 참고
 
-## 요구 사항
+### 요구 사항
 
 - Windows (pywebview 기반 데스크톱 창), Python 3.11+
 - 의존성: `requirements.txt` 참고 (FastAPI, uvicorn, pywebview, SQLAlchemy, APScheduler, gallery-dl, playwright, Pillow)
 
-## 설치
+### 설치
 
 ```bash
 python -m venv .venv
@@ -30,7 +190,7 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-## 실행
+### 실행
 
 ```bash
 python main.py            # 데스크톱 창 + 로컬 서버 (기본 포트 17363)
@@ -39,7 +199,7 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 
 실행하면 로컬(`http://127.0.0.1:17363`) 및 동일 네트워크 주소가 콘솔에 표시된다.
 
-## EXE (Releases)
+### EXE (Releases)
 
 [Releases](https://github.com/mmoisall/LAFhvst/releases)에서 `LAFhvst-<버전>-win64.zip`을 받아
 압축을 풀고 실행한다. 데이터(`lafhvst.db`, `data/`, `log/`)는 exe 옆에 생성되므로 폴더째로
@@ -56,7 +216,7 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 - 프로필 로그인/감시 기능: 시스템 Chrome 또는 Edge 필요
 - 픽시브 ugoira(webm) 변환: 시스템 ffmpeg 필요(없으면 해당 변환만 생략)
 
-### 트레이 · 서버 모드
+#### 트레이 · 서버 모드
 
 - 창의 **X(닫기)** → 앱 종료 대신 **트레이로 숨김**, 서버는 계속 실행
 - 홈 화면 우상단 **"서버 모드"** 버튼 → 동일하게 트레이로 숨김
@@ -67,11 +227,11 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 소스에서 직접 빌드:
 
 ```powershell
-./build.ps1 -Version 0.1.1
-# 산출물: dist/LAFhvst-0.1.1-win64.zip
+./build.ps1 -Version 0.1.2
+# 산출물: dist/LAFhvst-0.1.2-win64.zip
 ```
 
-## 업데이트
+### 업데이트
 
 앱 시작 시 GitHub Releases에서 새 버전을 확인한다. 자세한 동작은 **설정 → 업데이트**:
 
@@ -83,7 +243,7 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 업데이트는 앱을 종료한 뒤 파일을 교체하고 재시작하며, 데이터(`data/`, `lafhvst.db`, `log/`)는
 보존된다. 소스 실행에서는 확인만 되고 설치는 비활성화된다.
 
-## 데이터 및 설정
+### 데이터 및 설정
 
 최초 실행 시 아래가 자동 생성된다.
 
@@ -102,7 +262,7 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 > `data/`, `log/`, `*.db*`, 다운로드 결과물은 `.gitignore`로 제외된다. 쿠키·세션 등 자격증명이
 > 포함되므로 절대 커밋하지 않는다.
 
-## 구형 HVST 이관 (별도 저장소)
+### 구형 HVST 이관 (별도 저장소)
 
 구형 HVST(=`LAFhvst old`)의 `hvst.db` 를 현재 `lafhvst.db` 로 이관하는 도구는
 별도 저장소 **mmoisall/LAF** 에서 관리한다.
@@ -110,7 +270,7 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 - 저장소: https://github.com/mmoisall/LAF (`hvst_import/`)
 - 사용: `python import_hvst.py --lafhvst "<LAFhvst 경로>" --db "<hvst.db 경로>" --apply`
 
-## 디렉터리 구조
+### 디렉터리 구조
 
 ```
 LAFhvst/
@@ -136,6 +296,6 @@ LAFhvst/
 
 > 구형 HVST 이관 도구는 별도 저장소 [mmoisall/LAF](https://github.com/mmoisall/LAF) 에 있습니다.
 
-## 라이선스
+### 라이선스
 
 [MIT](LICENSE) © 2026 mmoisall
