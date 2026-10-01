@@ -291,6 +291,19 @@
     },
     toggleWatcher: function (payload) {
       return request("/api/watcher/toggle", { method: "POST", body: payload || {} });
+    },
+
+    getVersion: function () {
+      return request("/api/version");
+    },
+    checkUpdate: function () {
+      return request("/api/update/check", { method: "POST", body: {} });
+    },
+    getUpdateStatus: function () {
+      return request("/api/update/status");
+    },
+    applyUpdate: function () {
+      return request("/api/update/apply", { method: "POST", body: {} });
     }
   };
 })(window);

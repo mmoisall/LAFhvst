@@ -2419,3 +2419,32 @@ body.drag-multiple .db-item.drag-source {
     max-width: 84vw;
   }
 }
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: rgba(249, 115, 22, 0.08);
+}
+
+.update-banner-text {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.update-banner-text strong {
+  color: var(--accent);
+}
+
+.update-banner-actions {
+  display: flex;
+  gap: 8px;
+}

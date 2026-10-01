@@ -45,6 +45,12 @@ class AppControl:
         self._icon_path = icon_path
         self._server_info = server_info
 
+    def attach_server(self, server, server_thread=None) -> None:
+        """GUI가 없어도(서버 콘솔 모드) 종료 트리거를 위해 서버를 등록한다."""
+        self._server = server
+        if server_thread is not None:
+            self._server_thread = server_thread
+
     def is_gui(self) -> bool:
         return self._window is not None
 

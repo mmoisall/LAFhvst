@@ -59,6 +59,14 @@
       if (closeToTray) {
         closeToTray.checked = settings.closeToTray !== false;
       }
+      var checkUpdate = document.getElementById("checkUpdateOnStartToggle");
+      if (checkUpdate) {
+        checkUpdate.checked = settings.checkUpdateOnStart !== false;
+      }
+      var autoUpdate = document.getElementById("autoUpdateToggle");
+      if (autoUpdate) {
+        autoUpdate.checked = settings.autoUpdate === true;
+      }
       var browserChannel = document.getElementById("browserChannelSelect");
       if (browserChannel && settings.browserChannel) {
         browserChannel.value = settings.browserChannel;
@@ -127,6 +135,9 @@
       if (window.DBExplorer && window.DBExplorer.render) {
         window.DBExplorer.render();
       }
+      if (window.Update && settings.checkUpdateOnStart !== false) {
+        window.Update.check();
+      }
     }).catch(function () {});
   }
 
@@ -177,6 +188,12 @@
       closeToTray: document.getElementById("closeToTrayToggle")
         ? document.getElementById("closeToTrayToggle").checked
         : true,
+      checkUpdateOnStart: document.getElementById("checkUpdateOnStartToggle")
+        ? document.getElementById("checkUpdateOnStartToggle").checked
+        : true,
+      autoUpdate: document.getElementById("autoUpdateToggle")
+        ? document.getElementById("autoUpdateToggle").checked
+        : false,
       browserChannel: document.getElementById("browserChannelSelect")
         ? document.getElementById("browserChannelSelect").value
         : "auto",
@@ -268,6 +285,9 @@
     window.DBExplorer.init();
     if (window.Home) {
       window.Home.init();
+    }
+    if (window.Update) {
+      window.Update.init();
     }
     if (window.Profiles) {
       window.Profiles.init();

@@ -71,6 +71,18 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 # 산출물: dist/LAFhvst-0.1.1-win64.zip
 ```
 
+## 업데이트
+
+앱 시작 시 GitHub Releases에서 새 버전을 확인한다. 자세한 동작은 **설정 → 업데이트**:
+
+- **시작 시 업데이트 확인** (기본 on)
+- **자동 업데이트 (다운로드·설치)**: 새 버전이 있으면 자동 다운로드·설치 후 재시작 (패키징 exe 전용)
+- **지금 확인** 버튼
+
+새 버전이 있으면 홈 화면에 배너가 표시되고 **업데이트 설치**로 즉시 적용할 수 있다.
+업데이트는 앱을 종료한 뒤 파일을 교체하고 재시작하며, 데이터(`data/`, `lafhvst.db`, `log/`)는
+보존된다. 소스 실행에서는 확인만 되고 설치는 비활성화된다.
+
 ## 데이터 및 설정
 
 최초 실행 시 아래가 자동 생성된다.
@@ -113,6 +125,8 @@ LAFhvst/
 │  ├─ browser_manager.py / browser_watcher.py
 │  ├─ alt_paths.py    # 대체경로 동기화
 │  ├─ app_control.py  # GUI 트레이/창·서버 생명주기
+│  ├─ updater.py      # GitHub Releases 업데이트 확인/적용
+│  ├─ version.py      # 앱 버전
 │  ├─ kde.py, sites.py, site_url.py, utils.py, error_logger.py
 ├─ frontend/          # 정적 웹 UI (HTML/CSS/JS)
 ├─ assets/            # 아이콘 (icon.png, LAFhvst.ico)

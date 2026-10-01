@@ -9,6 +9,11 @@ Set-Location $root
 $py = Join-Path $root ".venv\Scripts\python.exe"
 if (-not (Test-Path $py)) { $py = "python" }
 
+Write-Host "==> Writing version $Version to core/version.py"
+$versionFile = Join-Path $root "core\version.py"
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($versionFile, "__version__ = `"$Version`"`n", $utf8NoBom)
+
 Write-Host "==> Installing PyInstaller"
 & $py -m pip install --upgrade pyinstaller
 

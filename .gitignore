@@ -16,6 +16,7 @@ dist/
 # Runtime / sensitive data (cookies, sessions, logs, downloads)
 data/
 log/
+*.log
 twitter - gamou131 - gamou131/
 
 # OS / editor

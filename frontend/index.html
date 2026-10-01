@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>LAFhvst</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="css/style.css?v=40">
+  <link rel="stylesheet" href="css/style.css?v=41">
 </head>
 <body>
   <main class="app">
@@ -39,6 +39,17 @@
         <div id="kdeHeatmap" class="kde-heatmap"></div>
         <div class="kde-legend">
           <span>낮음</span><span class="kde-legend-bar"></span><span>높음</span>
+        </div>
+      </div>
+
+      <div id="updateBanner" class="update-banner hidden">
+        <div class="update-banner-text">
+          <strong>업데이트 사용 가능</strong>
+          <span id="updateBannerText"></span>
+        </div>
+        <div class="update-banner-actions">
+          <button id="updateInstallBtn" class="btn primary" type="button">업데이트 설치</button>
+          <button id="updateDismissBtn" class="btn" type="button">나중에</button>
         </div>
       </div>
     </section>
@@ -234,6 +245,27 @@
               <span class="label-help">창 닫으면 트레이로 (서버 유지)<span class="help-icon" role="button" tabindex="0" data-help="창을 닫아도 트레이로 숨겨 서버를 계속 실행합니다. 끄면 창 닫을 때 앱이 종료됩니다. 완전 종료는 트레이 아이콘 우클릭 → 종료.">?</span></span>
               <input type="checkbox" id="closeToTrayToggle" checked>
             </label>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <header class="settings-card-head">
+            <h2>업데이트</h2>
+            <p class="field-help">GitHub Releases 기준 · 현재 버전 <span id="appVersionText">-</span></p>
+          </header>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span class="label-help">시작 시 업데이트 확인<span class="help-icon" role="button" tabindex="0" data-help="앱 시작 시 GitHub Releases에서 새 버전이 있는지 확인합니다.">?</span></span>
+              <input type="checkbox" id="checkUpdateOnStartToggle" checked>
+            </label>
+            <label class="setting-row">
+              <span class="label-help">자동 업데이트 (다운로드·설치)<span class="help-icon" role="button" tabindex="0" data-help="새 버전이 있으면 자동으로 다운로드·설치하고 앱을 재시작합니다. 꺼져 있으면 알림만 표시됩니다. (패키징 exe에서만 동작)">?</span></span>
+              <input type="checkbox" id="autoUpdateToggle">
+            </label>
+          </div>
+          <div class="watcher-actions">
+            <button id="updateCheckBtn" class="btn" type="button">지금 확인</button>
+            <span id="updateStatusText" class="muted"></span>
           </div>
         </section>
 
@@ -754,7 +786,7 @@
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
   <script src="js/vendor/Sortable.min.js?v=38"></script>
-  <script src="js/api.js?v=38"></script>
+  <script src="js/api.js?v=40"></script>
   <script src="js/sites.js?v=38"></script>
   <script src="js/help.js?v=39"></script>
   <script src="js/urlsync.js?v=38"></script>
@@ -766,6 +798,7 @@
   <script src="js/watcher.js?v=38"></script>
   <script src="js/logs.js?v=38"></script>
   <script src="js/home.js?v=38"></script>
-  <script src="js/app.js?v=39"></script>
+  <script src="js/update.js?v=1"></script>
+  <script src="js/app.js?v=40"></script>
 </body>
 </html>

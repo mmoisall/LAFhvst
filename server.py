@@ -5,6 +5,8 @@ import os
 import platform
 import socket
 import subprocess
+import sys
+import threading
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -25,6 +27,7 @@ from core import (
     models,
     site_url,
     sites,
+    updater,
     utils,
 )
 from core.database import get_session, init_db
@@ -92,6 +95,8 @@ DEFAULT_SETTINGS = {
     "stealthEnabled": True,
     "browserCleanup": True,
     "closeToTray": True,
+    "checkUpdateOnStart": True,
+    "autoUpdate": False,
     "itemCycOption": 0,
     "itemCyc": 1,
     "itemLogLevel": "INFO",
@@ -261,6 +266,56 @@ def _normalize_item_config(value) -> dict:
     return result
 
 
+_update_state = {"last": None, "applying": False, "result": None}
+
+
+def _restart_args() -> list:
+    return list(sys.argv[1:])
+
+
+def _delayed_shutdown(delay: float = 1.2) -> None:
+    """응답 전송 후 앱을 종료(업데이터가 파일 교체 후 재시작)."""
+    def run():
+        import time
+
+        time.sleep(delay)
+        try:
+            from core import app_control
+
+            app_control.app_control.quit()
+        except Exception:
+            pass
+
+    threading.Thread(target=run, name="lafhvst-restart", daemon=True).start()
+
+
+def _perform_update_apply(info=None) -> dict:
+    info = info or _update_state.get("last") or updater.check_for_update()
+    _update_state["last"] = info
+    if not info.get("available"):
+        return {"ok": False, "error": "already-latest"}
+    _update_state["applying"] = True
+    result = updater.apply_update(info, restart_args=_restart_args())
+    _update_state["result"] = result
+    if result.get("ok"):
+        _delayed_shutdown()
+    else:
+        _update_state["applying"] = False
+    return result
+
+
+async def _startup_update_check() -> None:
+    if not SETTINGS.get("checkUpdateOnStart", True):
+        return
+    try:
+        info = await asyncio.to_thread(updater.check_for_update)
+        _update_state["last"] = info
+        if info.get("available") and SETTINGS.get("autoUpdate"):
+            await asyncio.to_thread(_perform_update_apply, info)
+    except Exception:
+        pass
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
@@ -285,6 +340,7 @@ async def lifespan(_app: FastAPI):
             )
         except Exception as exc:  # pragma: no cover - 환경 의존
             error_logger.log("ERROR", "watcher", "watcher start failed: " + str(exc), scope="watcher")
+    asyncio.create_task(_startup_update_check())
     try:
         yield
     finally:
@@ -313,6 +369,44 @@ def write_settings(payload: dict) -> dict:
     SETTINGS["itemConfig"] = _normalize_item_config(SETTINGS.get("itemConfig"))
     models.update_app_settings({key: SETTINGS[key] for key in DEFAULT_SETTINGS})
     return dict(SETTINGS)
+
+
+@app.get("/api/version")
+def api_version() -> dict:
+    return {
+        "version": updater.current_version(),
+        "frozen": utils.is_frozen(),
+        "exe": updater.current_exe_name(),
+    }
+
+
+@app.post("/api/update/check")
+def api_update_check() -> dict:
+    info = updater.check_for_update()
+    _update_state["last"] = info
+    return info
+
+
+@app.get("/api/update/status")
+def api_update_status() -> dict:
+    return {
+        "last": _update_state.get("last"),
+        "applying": _update_state.get("applying"),
+        "result": _update_state.get("result"),
+        "progress": updater.get_progress(),
+        "version": updater.current_version(),
+        "supported": updater.is_supported(),
+    }
+
+
+@app.post("/api/update/apply")
+def api_update_apply() -> dict:
+    info = _update_state.get("last") or updater.check_for_update()
+    if not info.get("available"):
+        raise HTTPException(status_code=400, detail="이미 최신 버전입니다.")
+    if _update_state.get("applying"):
+        return {"ok": False, "error": "already-applying"}
+    return _perform_update_apply(info)
 
 
 @app.get("/api/sites")

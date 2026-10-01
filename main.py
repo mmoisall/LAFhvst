@@ -96,6 +96,9 @@ def main() -> None:
     if not wait_for_server(PORT):
         raise RuntimeError("LAFhvst server did not start on port " + str(PORT))
 
+    # 업데이트 적용 시 종료 트리거를 위해 서버를 등록(서버 콘솔 모드 포함)
+    app_control.app_control.attach_server(server, server_thread)
+
     print("=" * 56)
     print(" LAFhvst engine started")
     print("   local:   " + WINDOW_URL)
