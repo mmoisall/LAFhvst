@@ -62,6 +62,24 @@
     getSchedulerStatus: function () {
       return request("/api/scheduler/status");
     },
+    schedulerToggle: function (enabled) {
+      return request("/api/scheduler/toggle", {
+        method: "POST",
+        body: enabled === undefined ? {} : { enabled: enabled }
+      });
+    },
+    getDashboardLive: function () {
+      return request("/api/dashboard/live");
+    },
+    quickDownload: function (payload) {
+      return request("/api/quick-download", { method: "POST", body: payload || {} });
+    },
+    watcherToggle: function (enabled) {
+      return request("/api/watcher/toggle", {
+        method: "POST",
+        body: { enabled: enabled }
+      });
+    },
     saveSettings: function (payload) {
       return request("/api/settings", { method: "POST", body: payload });
     },
@@ -187,6 +205,23 @@
       return request("/api/sources/" + encodeId(id) + "/alt-prune", {
         method: "POST",
         body: { kind: which || "both" }
+      });
+    },
+    metadataStatus: function (kind, id) {
+      var base = kind === "folder" ? "/api/folders/" : "/api/sources/";
+      return request(base + encodeId(id) + "/metadata-status");
+    },
+    metadataMigrate: function (kind, id, payload) {
+      var base = kind === "folder" ? "/api/folders/" : "/api/sources/";
+      return request(base + encodeId(id) + "/metadata-migrate", {
+        method: "POST",
+        body: payload || {}
+      });
+    },
+    metadataMigrateAll: function (payload) {
+      return request("/api/metadata/migrate", {
+        method: "POST",
+        body: payload || {}
       });
     },
     getSourceLogs: function (id, status) {

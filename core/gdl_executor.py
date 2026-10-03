@@ -7,7 +7,7 @@ import sys
 import time
 from datetime import datetime
 
-from . import browser_manager, models, utils
+from . import browser_manager, metadata, models, utils
 from .database import get_session
 
 _ERROR_CODE_RE = re.compile(r"(?:code|error[_\s-]?code)[\s:=#-]*(\d{2,6})", re.IGNORECASE)
@@ -126,10 +126,16 @@ def build_command(
             command.extend(["--config", cfg])
     if write_info_json:
         command.append("--write-info-json")
-        # 메타데이터(info.json 등)는 하위 '.metadata' 폴더로 격리
+        # 미디어별 메타데이터 JSON 을 .metadata 로 직접 생성.
+        # 주의: 포스트프로세서 옵션은 -O(대문자)로 주되 키에 PP 이름을 붙이지 않는다.
+        #   -o          = extractor 옵션이라 metadata.* 가 무시되고,
+        #   -O metadata.directory=... = 키가 그대로 들어가 options["directory"] 조회 실패.
+        #   (job.py 에서 postprocessor-options 가 각 PP 옵션에 평탄하게 병합됨)
+        # --write-info-json 의 정보 JSON 도 동일 옵션으로 .metadata 로 들어간다.
         command.extend([
-            "-o", "metadata.base-directory=false",
-            "-o", "metadata.directory=.metadata",
+            "--postprocessor", "metadata",
+            "-O", "mode=json",
+            "-O", "directory=.metadata",
         ])
     if quiet:
         command.append("--quiet")
@@ -171,6 +177,7 @@ async def run_gdl(
     options: list[str] | None = None,
     date_after: str | None = None,
     timeout: int | None = 900,
+    metadata_yaml: bool = False,
 ) -> dict:
     """단발성 gallery-dl 수집 (반응형 알림 트리거용).
 
@@ -212,6 +219,11 @@ async def run_gdl(
     )
     if not ok and not errors:
         errors = [{"code": None, "message": "gallery-dl exited with a non-zero status"}]
+    yaml_count = 0
+    if directory:
+        await asyncio.to_thread(metadata.relocate_metadata, directory)
+        if metadata_yaml and metadata.is_available():
+            yaml_count = await asyncio.to_thread(metadata.convert_directory, directory)
     return {
         "ok": ok,
         "returncode": result.get("returncode"),
@@ -219,6 +231,7 @@ async def run_gdl(
         "rate_limited": bool(result.get("rate_limited")),
         "errors": errors,
         "directory": directory,
+        "yaml_count": yaml_count,
     }
 
 
@@ -628,6 +641,7 @@ async def collect_with_failover(
     retries: int | None = None,
     timeout: float | None = None,
     limit_rate: str | None = None,
+    metadata_yaml: bool = False,
 ) -> dict:
     """단일 소스 수집을 프로파일 로테이션과 유기적 한도 학습 루프로 감싼다.
 
@@ -712,6 +726,10 @@ async def collect_with_failover(
                         started_at,
                         ended_at,
                     )
+                yaml_count = 0
+                await asyncio.to_thread(metadata.relocate_metadata, directory)
+                if metadata_yaml and metadata.is_available():
+                    yaml_count = await asyncio.to_thread(metadata.convert_directory, directory)
                 return {
                     "ok": True,
                     "returncode": result.get("returncode"),
@@ -722,6 +740,7 @@ async def collect_with_failover(
                     "attempts": attempts,
                     "failovers": failovers,
                     "usage_delta": usage_delta,
+                    "yaml_count": yaml_count,
                 }
 
             if rate_limited and profile and attempts <= max_failovers:

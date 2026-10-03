@@ -176,7 +176,7 @@ def count_directory_files(directory: str, use_cache: bool = True) -> int:
             lowered = name.lower()
             if lowered.endswith(".part") or lowered.endswith(".json.tmp"):
                 continue
-            if lowered.endswith(".json"):
+            if lowered.endswith(".json") or lowered.endswith(".yaml") or lowered.endswith(".yml"):
                 continue
             count += 1
     _DIR_COUNT_CACHE[directory] = (now, count)
@@ -407,16 +407,17 @@ def list_media_events(directory: str, cluster_minutes: float = 5.0) -> list[date
     if not directory or not os.path.isdir(directory):
         return []
     moments: list[datetime] = []
-    for root, _dirs, files in os.walk(directory):
+    for root, dirs, files in os.walk(directory):
+        dirs[:] = [d for d in dirs if d != METADATA_DIRNAME]
         for name in files:
             lowered = name.lower()
             if lowered.endswith(".part") or lowered.endswith(".json.tmp"):
                 continue
-            if lowered.endswith(".info.json"):
+            if lowered.endswith(".info.json") or lowered.endswith(".yaml") or lowered.endswith(".yml"):
                 continue
             path = os.path.join(root, name)
-            info_path = path + ".info.json"
-            moment = upload_time_from_info(info_path)
+            info_path = _find_info_path(directory, path, root)
+            moment = upload_time_from_info(info_path) if info_path else None
             if moment is None:
                 try:
                     moment = datetime.fromtimestamp(os.path.getmtime(path))

@@ -102,6 +102,8 @@ def _iter_files(root):
             lowered = name.lower()
             if lowered.endswith(".part") or lowered.endswith(".json.tmp"):
                 continue
+            if lowered.endswith(".json") or lowered.endswith(".yaml") or lowered.endswith(".yml"):
+                continue
             path = os.path.join(base, name)
             yield path, os.path.relpath(path, root)
 

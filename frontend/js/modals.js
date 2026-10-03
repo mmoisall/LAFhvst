@@ -365,6 +365,18 @@
     if (minEl) { minEl.value = Array.isArray(sleepReq) && sleepReq.length ? sleepReq[0] : ""; }
     if (maxEl) { maxEl.value = Array.isArray(sleepReq) && sleepReq.length > 1 ? sleepReq[1] : ""; }
     if (argsEl) { argsEl.value = Array.isArray(config.args) ? config.args.join("\n") : ""; }
+    var yamlEl = byId("entityMetadataYaml");
+    if (yamlEl) {
+      var effective = (data && data.effective_config) || {};
+      var yamlVal = effective.metadata_yaml;
+      if (yamlVal == null && data && data.config) {
+        yamlVal = data.config.metadata_yaml;
+      }
+      if (yamlVal == null) {
+        yamlVal = window.AppSettings && window.AppSettings.itemMetadataYaml === true;
+      }
+      yamlEl.checked = yamlVal === true;
+    }
   }
 
   function applyGdlConfig(config) {
@@ -390,6 +402,24 @@
       var args = argsEl.value.split(/[\n,]/).map(function (t) { return t.trim(); })
         .filter(function (t) { return t.length > 0; });
       if (args.length) { config.args = args; } else { delete config.args; }
+    }
+    var yamlEl = byId("entityMetadataYaml");
+    if (yamlEl) {
+      var desired = yamlEl.checked === true;
+      var ownCfg = (current && current.target && current.target.config) || {};
+      var ownHas = Object.prototype.hasOwnProperty.call(ownCfg, "metadata_yaml");
+      var effective = (current && current.target && current.target.effective_config) || {};
+      if (desired) {
+        if (ownHas || effective.metadata_yaml !== true) {
+          config.metadata_yaml = true;
+        } else {
+          delete config.metadata_yaml;
+        }
+      } else if (!ownHas && effective.metadata_yaml !== true) {
+        delete config.metadata_yaml;
+      } else {
+        config.metadata_yaml = false;
+      }
     }
     return config;
   }
@@ -506,6 +536,47 @@
     }).catch(function (error) {
       if (window.Toast) {
         window.Toast.show(error.message || "대체경로 동기화 실패", "error");
+      }
+    });
+  }
+
+  function migrateMetadataNow(dryRun) {
+    var target = current.target;
+    if (!target || !target.id) {
+      if (window.Toast) {
+        window.Toast.show("먼저 저장하세요.", "info");
+      }
+      return;
+    }
+    var itemKind = current.mode === "folder" ? "folder" : "source";
+    var yamlEl = byId("entityMetadataYaml");
+    var status = byId("entityMetaStatus");
+    if (status) {
+      status.textContent = dryRun ? "미리보기 중..." : "정리 중...";
+    }
+    var payload = {
+      dry_run: dryRun === true,
+      yaml: yamlEl ? yamlEl.checked === true : undefined,
+      include_alt: true
+    };
+    window.API.metadataMigrate(itemKind, target.id, payload).then(function (result) {
+      var total = (result && result.total) || {};
+      var text = dryRun
+        ? "미리보기: 미격리 JSON " + (total.stray_before || 0) +
+          "개 · 대상 " + ((result.targets || []).length) + "곳"
+        : "정리 완료: 이동 " + (total.moved || 0) + " · YAML " + (total.converted || 0);
+      if (status) {
+        status.textContent = text;
+      }
+      if (window.Toast) {
+        window.Toast.show(text, "success");
+      }
+    }).catch(function (error) {
+      if (status) {
+        status.textContent = "";
+      }
+      if (window.Toast) {
+        window.Toast.show(error.message || "메타데이터 정리 실패", "error");
       }
     });
   }
@@ -1070,6 +1141,18 @@
     var altSyncBtn = byId("entityAltSync");
     if (altSyncBtn) {
       altSyncBtn.addEventListener("click", syncAltNow);
+    }
+    var metaScanBtn = byId("entityMetaScanBtn");
+    if (metaScanBtn) {
+      metaScanBtn.addEventListener("click", function () {
+        migrateMetadataNow(true);
+      });
+    }
+    var metaMigrateBtn = byId("entityMetaMigrateBtn");
+    if (metaMigrateBtn) {
+      metaMigrateBtn.addEventListener("click", function () {
+        migrateMetadataNow(false);
+      });
     }
     var logList = byId("entityLogList");
     if (logList) {

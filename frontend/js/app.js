@@ -129,6 +129,14 @@
       setVal("itemRetriesInput", settings.itemRetries);
       setVal("itemTimeoutInput", settings.itemTimeout);
       setVal("itemLimitRateInput", settings.itemLimitRate);
+      var itemYaml = document.getElementById("itemMetadataYamlToggle");
+      if (itemYaml) {
+        itemYaml.checked = settings.itemMetadataYaml === true;
+      }
+      var metaYaml = document.getElementById("metaYamlToggle");
+      if (metaYaml) {
+        metaYaml.checked = settings.itemMetadataYaml === true;
+      }
       window.AppSettings = settings;
       savedSettings = collectSettings();
       updateDirtyCount();
@@ -170,6 +178,8 @@
       itemRetries: parseInt((document.getElementById("itemRetriesInput") || {}).value, 10) || 0,
       itemTimeout: parseFloat((document.getElementById("itemTimeoutInput") || {}).value) || 30,
       itemLimitRate: (document.getElementById("itemLimitRateInput") || {}).value || "",
+      itemMetadataYaml: document.getElementById("itemMetadataYamlToggle")
+        ? document.getElementById("itemMetadataYamlToggle").checked : false,
       kdeBackfillOnFirstRun: document.getElementById("kdeBackfillToggle")
         ? document.getElementById("kdeBackfillToggle").checked : true,
       kdeClusterMinutes: document.getElementById("kdeClusterInput")
@@ -276,6 +286,61 @@
     form.addEventListener("submit", saveSettings);
   }
 
+  function metaPayload(dryRun) {
+    var yamlEl = document.getElementById("metaYamlToggle");
+    var altEl = document.getElementById("metaIncludeAltToggle");
+    return {
+      dry_run: Boolean(dryRun),
+      yaml: yamlEl ? yamlEl.checked === true : undefined,
+      include_alt: altEl ? altEl.checked === true : true
+    };
+  }
+
+  function metaSummary(result, dryRun) {
+    var total = (result && result.total) || {};
+    var count = result && result.target_count != null ? result.target_count : 0;
+    if (dryRun) {
+      return "미리보기: 미격리 JSON " + (total.stray_before || 0) +
+        "개 · 대상 " + count + "곳";
+    }
+    return "정리 완료: 이동 " + (total.moved || 0) +
+      " · YAML " + (total.converted || 0) + " · 대상 " + count + "곳";
+  }
+
+  function runMetadataAll(dryRun) {
+    var status = document.getElementById("metaStatusText");
+    if (status) {
+      status.textContent = "처리 중...";
+    }
+    window.API.metadataMigrateAll(metaPayload(dryRun)).then(function (result) {
+      var text = metaSummary(result, dryRun);
+      if (status) {
+        status.textContent = text;
+      }
+      Toast.show(text, "success");
+    }).catch(function (error) {
+      if (status) {
+        status.textContent = "";
+      }
+      Toast.show(error.message || "메타데이터 정리 실패", "error");
+    });
+  }
+
+  function bindMetadataTools() {
+    var scan = document.getElementById("metaScanAllBtn");
+    if (scan) {
+      scan.addEventListener("click", function () {
+        runMetadataAll(true);
+      });
+    }
+    var run = document.getElementById("metaMigrateAllBtn");
+    if (run) {
+      run.addEventListener("click", function () {
+        runMetadataAll(false);
+      });
+    }
+  }
+
   function init() {
     if (window.Help) {
       window.Help.init();
@@ -306,6 +371,7 @@
     }
     bindSettingsForm();
     bindDirtyTracking();
+    bindMetadataTools();
     loadSettings();
   }
 

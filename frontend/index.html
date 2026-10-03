@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>LAFhvst</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="css/style.css?v=41">
+  <link rel="stylesheet" href="css/style.css?v=44">
 </head>
 <body>
   <main class="app">
@@ -16,17 +16,110 @@
           title="창을 닫고 트레이에서 서버로 계속 실행">서버 모드</button>
       </header>
       <div id="homeWidgets" class="widget-grid">
-        <article class="widget" id="widgetStatus">
-          <h2>스케줄러</h2>
-          <p class="muted" id="schedulerState">-</p>
+        <!-- 1. Quick Download (span 2) -->
+        <article class="widget span-2 widget-quick" id="widgetQuick">
+          <h2>빠른 수집 (Quick Download)</h2>
+          <div class="quick-row">
+            <input type="url" id="quickUrlInput" class="quick-input"
+              placeholder="수집할 URL을 입력 (예: https://x.com/user/media)">
+            <button id="quickDownloadBtn" class="btn primary" type="button">수집</button>
+          </div>
+          <p class="muted quick-status" id="quickStatus">DB에 등록하지 않고 즉시 1회 수집합니다.</p>
         </article>
-        <article class="widget" id="widgetConcurrency">
-          <h2>동시 실행</h2>
-          <p class="muted" id="concurrencyValue">0 / 0</p>
+
+        <!-- 2. Master switches (span 2) -->
+        <article class="widget span-2" id="widgetMaster">
+          <h2>마스터 컨트롤</h2>
+          <div class="master-switch">
+            <div class="switch-item">
+              <span class="switch-label">AI 스케줄러</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="masterSchedulerToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="switch-item">
+              <span class="switch-label">실시간 감시자</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="masterWatcherToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <p class="muted" id="masterStatus">-</p>
         </article>
-        <article class="widget" id="widgetQueue">
-          <h2>다음 수집</h2>
-          <p class="muted" id="nextRunValue">-</p>
+
+        <!-- 3. Trend chart (span 2) -->
+        <article class="widget span-2" id="widgetTrend">
+          <h2>수집 추이</h2>
+          <div class="trend-head">
+            <div class="trend-toggle" role="group" aria-label="추이 기간">
+              <button class="btn btn-sm active" type="button" data-trend="daily">일간</button>
+              <button class="btn btn-sm" type="button" data-trend="monthly">월간</button>
+            </div>
+            <span class="muted" id="trendTotal">-</span>
+          </div>
+          <div id="trendChart" class="trend-chart"></div>
+        </article>
+
+        <!-- 4. Live execution queue (span 2) -->
+        <article class="widget span-2" id="widgetLiveQueue">
+          <h2>라이브 작업 큐</h2>
+          <div id="liveQueueList" class="queue-list"><p class="muted">대기 중...</p></div>
+        </article>
+
+        <!-- 5. Next scheduled (span 1) -->
+        <article class="widget" id="widgetNextScheduled">
+          <h2>다음 순번</h2>
+          <p class="metric" id="nextScheduledValue">-</p>
+          <p class="muted" id="nextScheduledMeta">-</p>
+        </article>
+
+        <!-- 6. Active sources (span 1) -->
+        <article class="widget" id="widgetActiveSources">
+          <h2>모니터링 소스</h2>
+          <p class="metric" id="activeSourcesValue">0</p>
+          <p class="muted" id="activeSourcesMeta">자동 수집 대상</p>
+        </article>
+
+        <!-- 7. Unresolved errors (span 1) -->
+        <article class="widget widget-clickable" id="widgetErrors" role="button" tabindex="0">
+          <h2>미해결 에러</h2>
+          <p class="metric" id="unresolvedErrorsValue">0</p>
+          <p class="muted" id="unresolvedErrorsMeta">클릭하여 로그 보기</p>
+        </article>
+
+        <!-- 8. Profile cooldown / AI learning (span 2) -->
+        <article class="widget span-2" id="widgetProfiles">
+          <h2>프로파일 쿨다운 · AI 학습</h2>
+          <div id="profileCooldownList" class="profile-list"><p class="muted">정상 상태</p></div>
+        </article>
+
+        <!-- 9. Hot pick carousel (full width) -->
+        <article class="widget span-full" id="widgetHotPicks">
+          <h2>핫 갤러리 (최근 수집)</h2>
+          <div id="hotPicksTrack" class="hot-track"><p class="muted">표시할 항목이 없습니다.</p></div>
+        </article>
+
+        <!-- 10. Quick links (span 1) -->
+        <article class="widget" id="widgetQuickLinks">
+          <h2>빠른 링크</h2>
+          <div id="quickLinksList" class="quick-links"></div>
+        </article>
+
+        <!-- 11. Discord (span 1) -->
+        <article class="widget" id="widgetDiscord">
+          <h2>커뮤니티</h2>
+          <a id="discordLink" class="discord-link" href="#" target="_blank" rel="noopener">
+            <span class="discord-icon">💬</span> 디스코드 참여 / 알림 채널
+          </a>
+          <p class="muted" id="discordMeta">수집 알림 연동</p>
+        </article>
+
+        <!-- 12. Notification history (span 2) -->
+        <article class="widget span-2" id="widgetAlerts">
+          <h2>최근 알림 이력</h2>
+          <div id="alertHistoryList" class="alert-list"><p class="muted">알림 없음</p></div>
         </article>
       </div>
 
@@ -396,7 +489,33 @@
               <span class="label-help">limit-rate<span class="help-icon" role="button" tabindex="0" data-help="최대 다운로드 속도(예: 500k, 2.5M). 비우면 제한 없음.">?</span></span>
               <input type="text" id="itemLimitRateInput" placeholder="500k">
             </label>
+            <label class="setting-row">
+              <span class="label-help">YAML 메타데이터 추가 생성<span class="help-icon" role="button" tabindex="0" data-help="JSON(info.json)은 항상 생성됩니다. 이 옵션을 켜면 .metadata 폴더에 사람이 읽기 좋은 YAML(.yaml)도 함께 생성합니다.">?</span></span>
+              <input type="checkbox" id="itemMetadataYamlToggle">
+            </label>
           </div>
+        </section>
+
+        <section class="settings-card">
+          <header class="settings-card-head">
+            <h2>메타데이터 정리</h2>
+            <p class="field-help">기존 수집 폴더에 흩어진 메타 JSON(.json/.info.json)을 .metadata 로 격리합니다</p>
+          </header>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span class="label-help">YAML도 생성<span class="help-icon" role="button" tabindex="0" data-help="격리한 JSON을 사람이 읽기 좋은 YAML(.yaml)로도 변환합니다.">?</span></span>
+              <input type="checkbox" id="metaYamlToggle">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">대체경로(alt/cmb) 포함<span class="help-icon" role="button" tabindex="0" data-help="원본 경로뿐 아니라 alt/cmb 대상 폴더도 함께 정리합니다.">?</span></span>
+              <input type="checkbox" id="metaIncludeAltToggle" checked>
+            </label>
+          </div>
+          <div class="alt-actions">
+            <button id="metaScanAllBtn" class="btn btn-sm" type="button">미리보기</button>
+            <button id="metaMigrateAllBtn" class="btn btn-sm primary" type="button">전체 정리 실행</button>
+          </div>
+          <p id="metaStatusText" class="field-help"></p>
         </section>
 
         <section class="settings-card">
@@ -550,6 +669,15 @@
           <label class="label-help" for="entityArgs">추가 실행 옵션 (args, 줄바꿈/쉼표 구분)<span class="help-icon" role="button" tabindex="0" data-help="이 소스에만 적용되는 gallery-dl 추가 옵션입니다. 비우면 전역 기본값(없음) 사용.">?</span></label>
           <textarea id="entityArgs" rows="2"></textarea>
         </div>
+        <label class="setting-row">
+          <span class="label-help">YAML 메타데이터 추가 생성<span class="help-icon" role="button" tabindex="0" data-help="JSON(info.json)은 항상 생성됩니다. 켜면 .metadata 폴더에 YAML(.yaml)도 함께 생성합니다.">?</span></span>
+          <input type="checkbox" id="entityMetadataYaml">
+        </label>
+        <div class="alt-actions">
+          <button id="entityMetaScanBtn" class="btn btn-sm" type="button">메타 미리보기</button>
+          <button id="entityMetaMigrateBtn" class="btn btn-sm primary" type="button">메타데이터 정리</button>
+        </div>
+        <p id="entityMetaStatus" class="field-help"></p>
       </div>
 
       <div class="modal-pane" data-pane="profile">
@@ -785,20 +913,20 @@
 
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script src="js/vendor/Sortable.min.js?v=38"></script>
-  <script src="js/api.js?v=40"></script>
-  <script src="js/sites.js?v=38"></script>
-  <script src="js/help.js?v=39"></script>
-  <script src="js/urlsync.js?v=38"></script>
-  <script src="js/nav.js?v=38"></script>
-  <script src="js/modals.js?v=38"></script>
-  <script src="js/db.js?v=39"></script>
-  <script src="js/profiles.js?v=38"></script>
-  <script src="js/rules.js?v=38"></script>
-  <script src="js/watcher.js?v=38"></script>
-  <script src="js/logs.js?v=38"></script>
-  <script src="js/home.js?v=38"></script>
-  <script src="js/update.js?v=1"></script>
-  <script src="js/app.js?v=40"></script>
+  <script src="js/vendor/Sortable.min.js?v=44"></script>
+  <script src="js/api.js?v=44"></script>
+  <script src="js/sites.js?v=44"></script>
+  <script src="js/help.js?v=44"></script>
+  <script src="js/urlsync.js?v=44"></script>
+  <script src="js/nav.js?v=44"></script>
+  <script src="js/modals.js?v=44"></script>
+  <script src="js/db.js?v=44"></script>
+  <script src="js/profiles.js?v=44"></script>
+  <script src="js/rules.js?v=44"></script>
+  <script src="js/watcher.js?v=44"></script>
+  <script src="js/logs.js?v=44"></script>
+  <script src="js/home.js?v=44"></script>
+  <script src="js/update.js?v=44"></script>
+  <script src="js/app.js?v=44"></script>
 </body>
 </html>

@@ -24,6 +24,7 @@ from core import (
     error_logger,
     gdl_executor,
     kde,
+    metadata,
     models,
     site_url,
     sites,
@@ -112,6 +113,7 @@ DEFAULT_SETTINGS = {
     "itemTimeout": 30,
     "itemLimitRate": "",
     "itemDateBasis": "filter",
+    "itemMetadataYaml": False,
 }
 SETTINGS = dict(DEFAULT_SETTINGS)
 
@@ -241,6 +243,17 @@ class ExplorerReorderPayload(BaseModel):
     type: str
     parent_id: int | None = None
     ordered_ids: list[int] = []
+
+
+class QuickDownloadPayload(BaseModel):
+    url: str
+    directory: str | None = None
+    folder_id: int | None = None
+    cookies: bool = True
+
+
+class SchedulerTogglePayload(BaseModel):
+    enabled: bool | None = None
 
 
 class ReactiveRulePayload(BaseModel):
@@ -613,6 +626,82 @@ def scheduler_status() -> dict:
         session.close()
 
 
+@app.post("/api/scheduler/toggle")
+def scheduler_toggle(payload: SchedulerTogglePayload | None = None) -> dict:
+    payload = payload or SchedulerTogglePayload()
+    current = bool(SETTINGS.get("schedulerEnabled", True))
+    enabled = current if payload.enabled is None else bool(payload.enabled)
+    SETTINGS["schedulerEnabled"] = enabled
+    models.update_app_settings({"schedulerEnabled": enabled})
+    error_logger.log(
+        "INFO",
+        "scheduler",
+        "스케줄러 " + ("활성화" if enabled else "비활성화"),
+        scope="system",
+    )
+    return {"ok": True, "enabled": enabled}
+
+
+@app.get("/api/dashboard/live")
+async def dashboard_live() -> dict:
+    """홈 대시보드 종합 라이브 데이터(폴링용)."""
+    return await asyncio.to_thread(_build_dashboard)
+
+
+def _build_dashboard() -> dict:
+    session = _session()
+    try:
+        agg = models.dashboard_stats(session, days=30)
+        hot = models.dashboard_hot_picks(session, limit=12)
+        sources = models.list_all_sources(session)
+    finally:
+        session.close()
+
+    running_ids = sorted(_running)
+    running_set = set(running_ids)
+    name_by_id = {row["id"]: row.get("name") for row in sources}
+
+    # 작업 큐: 현재 실행 중(_running)
+    queue = [
+        {
+            "id": sid,
+            "name": name_by_id.get(sid) or ("소스 #%d" % sid),
+            "state": "running",
+        }
+        for sid in running_ids
+    ]
+
+    # 다음 순번: 서버 스케줄러 upcoming 재사용
+    sched = scheduler_status()
+    upcoming = sched.get("upcoming") or []
+    for item in upcoming:
+        if item["id"] in running_set:
+            item["state"] = "running"
+        else:
+            item["state"] = "queued"
+
+    return {
+        "scheduler": {
+            "enabled": bool(sched.get("enabled")),
+            "running": sched.get("running", 0),
+            "maxConcurrency": sched.get("maxConcurrency", 0),
+        },
+        "watcher": browser_watcher.status(),
+        "queue": queue,
+        "next": upcoming[:10],
+        "active_sources": agg.get("active_sources", 0),
+        "manual_sources": agg.get("manual_sources", 0),
+        "total_sources": agg.get("total_sources", 0),
+        "running_sources": len(running_ids),
+        "unresolved_errors": agg.get("unresolved_errors", 0),
+        "trend": agg.get("trend", {"daily": [], "monthly": []}),
+        "profiles": agg.get("profiles", []),
+        "recent_alerts": agg.get("recent_alerts", []),
+        "hot_picks": hot,
+        "generated_at": datetime.now().isoformat(),
+    }
+
+
 @app.get("/api/sources/{source_id}")
 def get_source(source_id: int) -> dict:
     session = _session()
@@ -659,6 +748,15 @@ def delete_source(source_id: int) -> dict:
 
 class AltSyncPayload(BaseModel):
     kind: str = "both"
+
+
+class MetadataMigratePayload(BaseModel):
+    item_type: str | None = None
+    item_id: int | None = None
+    all: bool = False
+    yaml: bool | None = None
+    dry_run: bool = False
+    include_alt: bool = True
 
 
 def _alt_base_dir(kind, item):
@@ -768,6 +866,222 @@ async def alt_prune_source(source_id: int, payload: AltSyncPayload | None = None
     return {"ok": True, "reports": reports}
 
 
+def _metadata_targets(item_type, item, include_alt=True) -> list[str]:
+    """아이템의 메타데이터 정리 대상 디렉터리(원본 base + 옵션 alt/cmb)."""
+    config = item.get("config") or {}
+    base = _alt_base_dir(item_type, item)
+    targets: list[str] = []
+    if base:
+        targets.append(base)
+        if include_alt:
+            targets.extend(alt_paths.resolve_targets(config, base, "alt"))
+            targets.extend(alt_paths.resolve_targets(config, base, "cmb"))
+    seen = set()
+    out = []
+    for path in targets:
+        norm = os.path.normpath(path)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        out.append(norm)
+    return out
+
+
+def _metadata_status_for(item_type, item_id) -> dict:
+    session = _session()
+    try:
+        item = (
+            models.get_source(session, item_id)
+            if item_type == "source"
+            else models.get_folder(session, item_id)
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="item not found")
+    finally:
+        session.close()
+    defaults = models.item_gdl_defaults()
+    yaml_default = bool(
+        (item.get("effective_config") or {}).get(
+            "metadata_yaml", defaults.get("metadata_yaml")
+        )
+    )
+    targets = _metadata_targets(item_type, item, True)
+    reports = [metadata.scan_directory(path) for path in targets]
+    return {
+        "ok": True,
+        "item_type": item_type,
+        "item_id": item_id,
+        "yaml_default": yaml_default,
+        "targets": targets,
+        "total": {"json": sum(rep["json"] for rep in reports)},
+        "reports": reports,
+    }
+
+
+def _run_metadata_migrate(item_type, item_id, yaml, dry_run, include_alt) -> dict:
+    session = get_session()
+    try:
+        item = (
+            models.get_source(session, item_id)
+            if item_type == "source"
+            else models.get_folder(session, item_id)
+        )
+        if item is None:
+            return {"ok": False, "error": "item not found"}
+        targets = _metadata_targets(item_type, item, include_alt)
+    finally:
+        session.close()
+    reports = []
+    total = {"moved": 0, "converted": 0, "stray_before": 0}
+    for directory in targets:
+        if dry_run:
+            scan = metadata.scan_directory(directory)
+            reports.append({
+                "directory": directory,
+                "stray_before": scan["json"],
+                "moved": 0,
+                "converted": 0,
+                "dry_run": True,
+            })
+            total["stray_before"] += scan["json"]
+            continue
+        report = metadata.migrate_directory(directory, yaml=bool(yaml))
+        reports.append(report)
+        total["moved"] += report.get("moved", 0)
+        total["converted"] += report.get("converted", 0)
+        total["stray_before"] += report.get("stray_before", 0)
+    if not dry_run and (total["moved"] or total["converted"]):
+        error_logger.log(
+            "INFO",
+            "metadata",
+            "메타데이터 정리 · 이동 %s · YAML %s" % (total["moved"], total["converted"]),
+            source_id=item_id if item_type == "source" else None,
+            scope=item_type,
+        )
+    return {
+        "ok": True,
+        "item_type": item_type,
+        "item_id": item_id,
+        "dry_run": dry_run,
+        "yaml": bool(yaml),
+        "targets": targets,
+        "total": total,
+        "reports": reports,
+    }
+
+
+def _run_metadata_migrate_all(yaml, dry_run, include_alt) -> dict:
+    session = get_session()
+    try:
+        sources = models.list_all_sources(session)
+        folder_rows = models.all_folders_flat(session)
+        folders = [
+            folder
+            for folder in (models.get_folder(session, row["id"]) for row in folder_rows)
+            if folder
+        ]
+    finally:
+        session.close()
+    items = [("source", row) for row in sources] + [("folder", row) for row in folders]
+    seen = set()
+    reports = []
+    total = {"moved": 0, "converted": 0, "stray_before": 0}
+    for item_type, item in items:
+        for directory in _metadata_targets(item_type, item, include_alt):
+            if directory in seen:
+                continue
+            seen.add(directory)
+            if dry_run:
+                scan = metadata.scan_directory(directory)
+                reports.append({
+                    "directory": directory,
+                    "item_type": item_type,
+                    "item_id": item.get("id"),
+                    "stray_before": scan["json"],
+                    "moved": 0,
+                    "converted": 0,
+                    "dry_run": True,
+                })
+                total["stray_before"] += scan["json"]
+                continue
+            report = metadata.migrate_directory(directory, yaml=bool(yaml))
+            report["item_type"] = item_type
+            report["item_id"] = item.get("id")
+            reports.append(report)
+            total["moved"] += report.get("moved", 0)
+            total["converted"] += report.get("converted", 0)
+            total["stray_before"] += report.get("stray_before", 0)
+    if not dry_run and (total["moved"] or total["converted"]):
+        error_logger.log(
+            "INFO",
+            "metadata",
+            "메타데이터 일괄 정리 · 이동 %s · YAML %s" % (total["moved"], total["converted"]),
+            scope="system",
+        )
+    return {
+        "ok": True,
+        "all": True,
+        "dry_run": dry_run,
+        "yaml": bool(yaml),
+        "target_count": len(seen),
+        "total": total,
+        "reports": reports,
+    }
+
+
+def _resolve_migrate_yaml(payload: MetadataMigratePayload) -> bool:
+    if payload.yaml is not None:
+        return bool(payload.yaml)
+    return bool(models.item_gdl_defaults().get("metadata_yaml"))
+
+
+@app.get("/api/sources/{source_id}/metadata-status")
+def metadata_status_source(source_id: int) -> dict:
+    return _metadata_status_for("source", source_id)
+
+
+@app.get("/api/folders/{folder_id}/metadata-status")
+def metadata_status_folder(folder_id: int) -> dict:
+    return _metadata_status_for("folder", folder_id)
+
+
+@app.post("/api/sources/{source_id}/metadata-migrate")
+async def metadata_migrate_source(
+    source_id: int, payload: MetadataMigratePayload | None = None
+) -> dict:
+    payload = payload or MetadataMigratePayload()
+    yaml = _resolve_migrate_yaml(payload)
+    result = await asyncio.to_thread(
+        _run_metadata_migrate, "source", source_id, yaml, payload.dry_run, payload.include_alt
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("error", "failed"))
+    return result
+
+
+@app.post("/api/folders/{folder_id}/metadata-migrate")
+async def metadata_migrate_folder(
+    folder_id: int, payload: MetadataMigratePayload | None = None
+) -> dict:
+    payload = payload or MetadataMigratePayload()
+    yaml = _resolve_migrate_yaml(payload)
+    result = await asyncio.to_thread(
+        _run_metadata_migrate, "folder", folder_id, yaml, payload.dry_run, payload.include_alt
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("error", "failed"))
+    return result
+
+
+@app.post("/api/metadata/migrate")
+async def metadata_migrate_all(payload: MetadataMigratePayload | None = None) -> dict:
+    payload = payload or MetadataMigratePayload()
+    yaml = _resolve_migrate_yaml(payload)
+    return await asyncio.to_thread(
+        _run_metadata_migrate_all, yaml, payload.dry_run, payload.include_alt
+    )
+
+
 @app.get("/api/sources/{source_id}/logs")
 def source_logs(source_id: int, status: str | None = None, limit: int = 20) -> dict:
     session = _session()
@@ -845,6 +1159,86 @@ async def download_source(payload: DownloadRequest) -> dict:
     elif payload.date_after:
         overrides = {"date_mode": "fixed", "date_fixed": payload.date_after}
     return _start_collection(ids, overrides)
+
+
+def _quick_download_directory(payload: QuickDownloadPayload) -> str:
+    if payload.directory:
+        return utils.compute_base_path(payload.directory) if not os.path.isabs(payload.directory) else os.path.normpath(payload.directory)
+    if payload.folder_id is not None:
+        session = _session()
+        try:
+            folder = models.get_folder(session, payload.folder_id)
+        finally:
+            session.close()
+        if folder and folder.get("save_path"):
+            return folder["save_path"]
+    return utils.compute_base_path("")
+
+
+def _quick_download_options(payload: QuickDownloadPayload) -> list[str]:
+    options: list[str] = []
+    if payload.cookies is False:
+        return options
+    try:
+        site_name, _key = site_url.url_to_site_key(payload.url or "")
+        norm = site_url.normalize_site(site_name) or site_name
+    except Exception:
+        norm = ""
+    if not norm:
+        return options
+    session = get_session()
+    try:
+        profile = models.default_profile_for_site(session, norm)
+    finally:
+        session.close()
+    if profile and profile.get("context_dir") and profile.get("id") is not None:
+        cookie_path = browser_manager.cookie_file_path(
+            profile.get("context_dir"), profile.get("id")
+        )
+        if os.path.isfile(cookie_path):
+            options.extend(["--cookies", cookie_path])
+    return options
+
+
+@app.post("/api/quick-download")
+async def quick_download(payload: QuickDownloadPayload) -> dict:
+    """DB에 소스를 등록하지 않고 URL 하나를 즉시 단발 수집한다."""
+    url = (payload.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL을 입력하세요.")
+    directory = _quick_download_directory(payload)
+    options = await asyncio.to_thread(_quick_download_options, payload)
+    await asyncio.to_thread(utils.ensure_dir, directory)
+    try:
+        result = await gdl_executor.run_gdl(
+            url,
+            directory,
+            options=options,
+            metadata_yaml=bool(models.item_gdl_defaults().get("metadata_yaml")),
+        )
+    except Exception as exc:  # pragma: no cover - 환경 의존
+        error_logger.log("ERROR", "quick", "단발성 수집 실패: " + str(exc), scope="system")
+        raise HTTPException(status_code=500, detail=str(exc))
+    ok = bool(result.get("ok"))
+    error_logger.log(
+        "SUCCESS" if ok else "ERROR",
+        "quick",
+        ("단발성 수집 완료 · %s" if ok else "단발성 수집 실패 · %s") % url,
+        scope="system",
+        context={
+            "url": url,
+            "directory": directory,
+            "errors": result.get("errors"),
+            "yaml_count": result.get("yaml_count"),
+        },
+    )
+    return {
+        "ok": ok,
+        "url": url,
+        "directory": directory,
+        "errors": result.get("errors") or [],
+        "yaml_count": result.get("yaml_count", 0),
+    }
 
 
 def _open_in_explorer(path: str) -> None:
@@ -1617,6 +2011,7 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
                 retries=int(retries_val) if retries_val is not None else None,
                 timeout=float(timeout_val) if timeout_val is not None else None,
                 limit_rate=limit_rate_val,
+                metadata_yaml=bool(config.get("metadata_yaml", gdl_defaults.get("metadata_yaml"))),
             )
             if engine.get("ok"):
                 break

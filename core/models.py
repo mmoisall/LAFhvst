@@ -507,6 +507,7 @@ def item_gdl_defaults() -> dict:
         "timeout": None,
         "limit_rate": None,
         "date_basis": "filter",
+        "metadata_yaml": False,
     }
     try:
         stored = get_app_settings()
@@ -536,6 +537,7 @@ def item_gdl_defaults() -> dict:
     result["limit_rate"] = stored.get("itemLimitRate") or None
     if stored.get("itemDateBasis"):
         result["date_basis"] = str(stored.get("itemDateBasis"))
+    result["metadata_yaml"] = stored.get("itemMetadataYaml", False) is True
     return result
 
 
@@ -2413,6 +2415,151 @@ def log_stats(session) -> dict:
         "by_level": by_level,
         "by_category": by_category,
     }
+
+
+def dashboard_stats(session, days: int = 30) -> dict:
+    """홈 대시보드용 집계(수집 추이/활성 소스/미해결 오류/프로파일 상태)."""
+    now = _now()
+    span = max(1, int(days))
+    start_date = (now - timedelta(days=span - 1)).date()
+    trend_map: dict[str, int] = {}
+    monthly_map: dict[str, int] = {}
+    success_rows = (
+        session.execute(
+            select(GdlErrorLog)
+            .where(GdlErrorLog.level == "SUCCESS")
+            .where(GdlErrorLog.category == "run")
+        )
+        .scalars()
+        .all()
+    )
+    for row in success_rows:
+        moment = _naive(row.last_at) or _naive(row.created_at)
+        if moment is None:
+            continue
+        if moment.date() >= start_date:
+            key = moment.strftime("%Y-%m-%d")
+            trend_map[key] = trend_map.get(key, 0) + 1
+        mkey = moment.strftime("%Y-%m")
+        monthly_map[mkey] = monthly_map.get(mkey, 0) + 1
+    daily = []
+    for offset in range(span):
+        day = start_date + timedelta(days=offset)
+        key = day.strftime("%Y-%m-%d")
+        daily.append({"date": key, "count": trend_map.get(key, 0)})
+    monthly = [
+        {"month": key, "count": monthly_map[key]}
+        for key in sorted(monthly_map.keys())[-12:]
+    ]
+
+    sources = session.execute(select(Source)).scalars().all()
+    active = sum(1 for s in sources if (s.cyc_option or 0) in (1, 2))
+    manual = sum(1 for s in sources if (s.cyc_option or 0) == 0)
+
+    profiles = []
+    for row in session.execute(select(Profile)).scalars().all():
+        info = profile_to_dict(session, row)
+        cooldown = int(info.get("cooldown_seconds") or 0)
+        if cooldown > 0 or info.get("probe_pending"):
+            profiles.append({
+                "id": info["id"],
+                "name": info["name"],
+                "site": info.get("site"),
+                "status": info.get("status"),
+                "cooldown_seconds": cooldown,
+                "in_cooldown": bool(info.get("in_cooldown")),
+                "probe_pending": bool(info.get("probe_pending")),
+                "learned_capacity": info.get("learned_capacity", 0),
+                "recent_usage_count": info.get("recent_usage_count", 0),
+                "remaining_capacity": info.get("remaining_capacity", 0),
+                "usage_ratio": info.get("usage_ratio", 0.0),
+                "last_error_kind": info.get("last_error_kind"),
+            })
+
+    open_rows = (
+        session.execute(
+            select(GdlErrorLog)
+            .where(GdlErrorLog.status == "open")
+            .where(GdlErrorLog.level.in_(("ERROR", "WARN")))
+        )
+        .scalars()
+        .all()
+    )
+    watcher_rows = (
+        session.execute(
+            select(GdlErrorLog)
+            .where(GdlErrorLog.scope == "watcher")
+            .order_by(GdlErrorLog.last_at.desc().nullslast(), GdlErrorLog.id.desc())
+            .limit(20)
+        )
+        .scalars()
+        .all()
+    )
+    recent_alerts = [
+        {
+            "id": row.id,
+            "level": row.level,
+            "status": row.status,
+            "message": row.message,
+            "category": row.category,
+            "last_at": _iso(row.last_at),
+            "context": _load_json(row.context),
+        }
+        for row in watcher_rows
+    ]
+
+    return {
+        "active_sources": active,
+        "manual_sources": manual,
+        "total_sources": len(sources),
+        "unresolved_errors": len(open_rows),
+        "trend": {"daily": daily, "monthly": monthly},
+        "profiles": profiles,
+        "recent_alerts": recent_alerts,
+    }
+
+
+def dashboard_hot_picks(session, limit: int = 12) -> list[dict]:
+    """최근 수집 이미지를 소스 최근성 기준으로 모아 핫 갤러리 후보를 만든다.
+
+    파일별 좋아요 지표는 저장되어 있지 않으므로 소스의 최근 파일/업로드
+    이력(``recent_file_mtime``/``recent_run_at``)을 반응도 프록시로 사용한다.
+    썸네일 URL 은 소스 이미지 API(/api/sources/{id}/thumbnail)를 재사용한다.
+    """
+    rows = (
+        session.execute(
+            select(Source).order_by(
+                Source.recent_file_mtime.desc().nullslast(),
+                Source.recent_run_at.desc().nullslast(),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    picks = []
+    for source in rows:
+        if len(picks) >= limit:
+            break
+        info = source_to_dict(session, source)
+        directory = info.get("download_directory")
+        images = utils.list_image_files(directory, 1) if directory else []
+        if not images:
+            continue
+        moments = kde.parse_history(source.upload_time_history or "[]")
+        picks.append({
+            "source_id": source.id,
+            "name": source.name,
+            "site": source.site,
+            "key": source.key,
+            "thumbnail": "/api/sources/%d/thumbnail" % source.id,
+            "image_count": info.get("file_count", 0),
+            "recent_file_mtime": _iso(source.recent_file_mtime),
+            "recent_run_at": _iso(source.recent_run_at),
+            "history_count": len(moments),
+            "score": len(moments) * 10 + (info.get("file_count", 0) or 0),
+        })
+    picks.sort(key=lambda item: item.get("score", 0), reverse=True)
+    return picks[:limit]
 
 
 def get_log(session, log_id) -> dict | None:
