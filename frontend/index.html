@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>LAFhvst</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="css/style.css?v=45">
+  <link rel="stylesheet" href="css/style.css?v=46">
 </head>
 <body>
   <main class="app">
@@ -25,6 +25,16 @@
             <button id="quickDownloadBtn" class="btn primary" type="button">수집</button>
           </div>
           <p class="muted quick-status" id="quickStatus">DB에 등록하지 않고 즉시 1회 수집합니다.</p>
+        </article>
+
+        <!-- 1b. 게시물 추천 (새 탭) -->
+        <article class="widget span-2 widget-recommend" id="widgetRecommend">
+          <h2>게시물 추천</h2>
+          <p class="muted">기간 내 게시물을 모아 <b>최근글 · 인기글 · 드문 업로더</b>를 한 페이지에서 보여줍니다.</p>
+          <div class="recommend-actions">
+            <button class="btn primary" id="recommendOpenBtn" type="button">추천 페이지 열기 ↗</button>
+            <span class="muted" id="recommendWidgetMeta">색인 정보를 불러오는 중…</span>
+          </div>
         </article>
 
         <!-- 2. Master switches (span 2) -->
@@ -913,20 +923,20 @@
 
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script src="js/vendor/Sortable.min.js?v=45"></script>
-  <script src="js/api.js?v=45"></script>
-  <script src="js/sites.js?v=45"></script>
-  <script src="js/help.js?v=45"></script>
-  <script src="js/urlsync.js?v=45"></script>
-  <script src="js/nav.js?v=45"></script>
-  <script src="js/modals.js?v=45"></script>
-  <script src="js/db.js?v=45"></script>
-  <script src="js/profiles.js?v=45"></script>
-  <script src="js/rules.js?v=45"></script>
-  <script src="js/watcher.js?v=45"></script>
-  <script src="js/logs.js?v=45"></script>
-  <script src="js/home.js?v=45"></script>
-  <script src="js/update.js?v=45"></script>
-  <script src="js/app.js?v=45"></script>
+  <script src="js/vendor/Sortable.min.js?v=46"></script>
+  <script src="js/api.js?v=46"></script>
+  <script src="js/sites.js?v=46"></script>
+  <script src="js/help.js?v=46"></script>
+  <script src="js/urlsync.js?v=46"></script>
+  <script src="js/nav.js?v=46"></script>
+  <script src="js/modals.js?v=46"></script>
+  <script src="js/db.js?v=46"></script>
+  <script src="js/profiles.js?v=46"></script>
+  <script src="js/rules.js?v=46"></script>
+  <script src="js/watcher.js?v=46"></script>
+  <script src="js/logs.js?v=46"></script>
+  <script src="js/home.js?v=46"></script>
+  <script src="js/update.js?v=46"></script>
+  <script src="js/app.js?v=46"></script>
 </body>
 </html>

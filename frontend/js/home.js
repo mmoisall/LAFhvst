@@ -433,6 +433,27 @@
     }).catch(function () {});
   }
 
+  // --------------------------------------------------- Recommendation widget
+  function refreshRecommend() {
+    var meta = byId("recommendWidgetMeta");
+    if (!meta) {
+      return;
+    }
+    window.API.getRecommendStatus().then(function (stats) {
+      var last = stats.last_indexed_at
+        ? String(stats.last_indexed_at).replace("T", " ").slice(0, 16)
+        : "없음";
+      meta.textContent = "색인 " + (stats.indexed_posts || 0) + "건 · 소스 " +
+        (stats.indexed_sources || 0) + "개 · 마지막 색인 " + last;
+    }).catch(function () {
+      meta.textContent = "색인 정보를 불러오지 못했습니다.";
+    });
+  }
+
+  function openRecommend() {
+    window.open("/recommend", "_blank", "noopener");
+  }
+
   // ------------------------------------------------------- Interactions
   function quickDownload() {
     var input = byId("quickUrlInput");
@@ -481,6 +502,10 @@
   }
 
   function bindControls() {
+    var recommendBtn = byId("recommendOpenBtn");
+    if (recommendBtn) {
+      recommendBtn.addEventListener("click", openRecommend);
+    }
     var quickBtn = byId("quickDownloadBtn");
     if (quickBtn) {
       quickBtn.addEventListener("click", quickDownload);
@@ -578,6 +603,7 @@
     bindControls();
     loadSources().then(renderQuickLinks);
     loadLive();
+    refreshRecommend();
     if (!state.liveTimer) {
       state.liveTimer = window.setInterval(function () {
         if (document.hidden) {
@@ -590,7 +616,10 @@
 
   window.Home = {
     init: init,
-    refresh: loadLive,
+    refresh: function () {
+      loadLive();
+      refreshRecommend();
+    },
     reload: loadSources
   };
 })(window, document);

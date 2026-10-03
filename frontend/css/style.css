@@ -72,8 +72,15 @@ body {
 
 .widget-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+  /* 화면 폭에 따라 열 수가 유기적으로 바뀐다(좁으면 1열, 넓으면 3~4열) */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  grid-auto-flow: dense;
+}
+
+/* 홈은 넓은 화면에서 폭을 더 쓴다 */
+body.home-view .app {
+  max-width: min(1680px, 100%);
 }
 
 .widget {
@@ -84,8 +91,19 @@ body {
   min-width: 0;
 }
 
-.widget.span-2 {
-  grid-column: span 2;
+/* 2칸 스팬은 실제로 2열 이상일 때만 적용 */
+@media (min-width: 680px) {
+  .widget.span-2 {
+    grid-column: span 2;
+  }
+}
+
+.recommend-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .widget.span-full {

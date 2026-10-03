@@ -71,6 +71,15 @@
     getDashboardLive: function () {
       return request("/api/dashboard/live");
     },
+    getRecommendations: function (query) {
+      return request("/api/recommendations" + (query ? "?" + query : ""));
+    },
+    getRecommendStatus: function () {
+      return request("/api/recommendations/status");
+    },
+    refreshRecommendations: function (payload) {
+      return request("/api/recommendations/refresh", { method: "POST", body: payload || {} });
+    },
     quickDownload: function (payload) {
       return request("/api/quick-download", { method: "POST", body: payload || {} });
     },

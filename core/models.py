@@ -10,10 +10,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
     Text,
+    UniqueConstraint,
     select,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -2634,3 +2636,44 @@ def auto_resolve_source_logs(session, source_id) -> int:
             row.resolution = "수집 성공으로 자동 해결"
     session.commit()
     return len(rows)
+
+
+class PostIndex(Base):
+    """추천 페이지용 게시물 인덱스.
+
+    gallery-dl 메타데이터(``.metadata/*.json``)가 있으면 반응 지표까지,
+    없으면 파일명(``{date} - {author} - {site} - {post_id}-{n}(...).ext``)에서
+    날짜·작성자·게시물ID만 뽑아 적재한다.
+    """
+
+    __tablename__ = "post_index"
+    __table_args__ = (
+        UniqueConstraint("site", "post_id", name="uq_post_index_site_post"),
+        Index("ix_post_index_posted_at", "posted_at"),
+        Index("ix_post_index_source", "source_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sources.id", ondelete="SET NULL"), nullable=True
+    )
+    site: Mapped[str] = mapped_column(String(200), default="", index=True)
+    uploader_key: Mapped[str] = mapped_column(String(200), default="", index=True)
+    uploader_name: Mapped[str] = mapped_column(String(255), default="")
+    post_id: Mapped[str] = mapped_column(String(200), default="")
+    post_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_count: Mapped[int] = mapped_column(Integer, default=0)
+    tags: Mapped[str] = mapped_column(Text, default="[]")
+    likes: Mapped[int] = mapped_column(Integer, default=0)
+    retweets: Mapped[int] = mapped_column(Integer, default=0)
+    replies: Mapped[int] = mapped_column(Integer, default=0)
+    quotes: Mapped[int] = mapped_column(Integer, default=0)
+    bookmarks: Mapped[int] = mapped_column(Integer, default=0)
+    views: Mapped[int] = mapped_column(Integer, default=0)
+    has_engagement: Mapped[bool] = mapped_column(Boolean, default=False)
+    sensitive: Mapped[bool] = mapped_column(Boolean, default=False)
+    media_rel: Mapped[str | None] = mapped_column(Text, nullable=True)
+    origin: Mapped[str] = mapped_column(String(20), default="file")
+    indexed_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

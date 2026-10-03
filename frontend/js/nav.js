@@ -51,6 +51,7 @@
     moveBall(activeButton);
 
     document.body.classList.toggle("db-view", name === "db");
+    document.body.classList.toggle("home-view", name === "home");
 
     if (name === "home" && window.Home && window.Home.refresh) {
       window.Home.refresh();
@@ -76,6 +77,8 @@
       });
     });
     moveBall(document.querySelector(".nav-btn.active"));
+    var active = document.querySelector(".tab-panel.active");
+    document.body.classList.toggle("home-view", !active || active.id === VIEW_IDS.home);
   }
 
   window.switchPage = switchPage;

@@ -26,6 +26,7 @@ from core import (
     kde,
     metadata,
     models,
+    post_index,
     site_url,
     sites,
     updater,
@@ -114,6 +115,18 @@ DEFAULT_SETTINGS = {
     "itemLimitRate": "",
     "itemDateBasis": "filter",
     "itemMetadataYaml": False,
+    "recommendRangeDays": 30,
+    "recommendIncludeSensitive": False,
+    "recommendMinEngagement": 0,
+    "recommendRareMaxPosts": 3,
+    "recommendRareMinGapHours": 168,
+    "recommendAutoIndex": True,
+    "recommendWeightLike": 1.0,
+    "recommendWeightRetweet": 2.0,
+    "recommendWeightBookmark": 2.0,
+    "recommendWeightReply": 1.0,
+    "recommendWeightQuote": 1.0,
+    "recommendWeightView": 0.001,
 }
 SETTINGS = dict(DEFAULT_SETTINGS)
 
@@ -1329,6 +1342,18 @@ def _source_directory(source_id: int) -> str | None:
         session.close()
 
 
+def _index_source_posts(source_id: int) -> dict | None:
+    """소스 하나의 게시물 인덱스를 (재)구축한다."""
+    session = _session()
+    try:
+        source = models.get_source(session, source_id)
+        if source is None:
+            return None
+        return post_index.refresh_source(session, models.source_to_dict(session, source))
+    finally:
+        session.close()
+
+
 @app.get("/api/sources/{source_id}/images")
 def source_images(source_id: int, limit: int = 4) -> dict:
     """소스 다운로드 디렉터리의 최근 이미지 목록 (썸네일 모자이크용)."""
@@ -2039,6 +2064,17 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
             await asyncio.to_thread(_db_mark_success, source_id, mtime)
             learned =             await asyncio.to_thread(_record_learning, source_id, found, mtime)
             await asyncio.to_thread(_maybe_initial_backfill, source_id)
+            if SETTINGS.get("recommendAutoIndex"):
+                try:
+                    await asyncio.to_thread(_index_source_posts, source_id)
+                except Exception as exc:  # 인덱싱 실패가 수집을 막지 않도록
+                    error_logger.log(
+                        "WARN",
+                        "recommend",
+                        "게시물 인덱스 갱신 실패: " + str(exc),
+                        source_id=source_id,
+                        scope="source",
+                    )
             if str((config or {}).get("alt_schedule") or "manual") == "on_run":
                 await asyncio.to_thread(_run_alt_sync, "source", source_id, "both", False)
             await asyncio.to_thread(error_logger.auto_resolve_related, source_id)
@@ -2252,6 +2288,142 @@ def clear_logs(payload: LogClearPayload) -> dict:
         return {"ok": True, "deleted": count}
     finally:
         session.close()
+
+
+class RecommendRefreshPayload(BaseModel):
+    source_id: int | None = None
+
+
+@app.get("/api/recommendations")
+def recommendations(
+    days: int | None = None,
+    site: str = "",
+    q: str = "",
+    limit: int = 24,
+    include_sensitive: int | None = None,
+) -> dict:
+    """최근글 / 인기글 / 드문 업로더 종합."""
+    days_value = int(days if days is not None else (SETTINGS.get("recommendRangeDays") or 0) or 0)
+    include = (
+        bool(SETTINGS.get("recommendIncludeSensitive"))
+        if include_sensitive is None
+        else bool(include_sensitive)
+    )
+    limit = max(1, min(int(limit or 24), 100))
+    weights = post_index.weights_from_settings(SETTINGS)
+    site_value = (site or "").strip() or None
+    query_value = (q or "").strip() or None
+    session = _session()
+    try:
+        return {
+            "days": days_value,
+            "site": site_value,
+            "query": query_value,
+            "limit": limit,
+            "recent": post_index.section_recent(
+                session, days_value, limit, site_value, include, query_value, weights
+            ),
+            "popular": post_index.section_popular(
+                session,
+                days_value,
+                limit,
+                SETTINGS.get("recommendMinEngagement") or 0,
+                site_value,
+                include,
+                query_value,
+                weights,
+            ),
+            "rare_uploaders": post_index.section_rare_uploaders(
+                session,
+                days_value,
+                12,
+                SETTINGS.get("recommendRareMaxPosts") or 0,
+                SETTINGS.get("recommendRareMinGapHours") or 0,
+                site_value,
+                include,
+                query_value,
+                weights,
+            ),
+            "sites": post_index.site_options(session),
+            "stats": post_index.stats(session, days_value),
+            "generated_at": datetime.now().isoformat(),
+        }
+    finally:
+        session.close()
+
+
+@app.get("/api/recommendations/status")
+def recommendations_status() -> dict:
+    session = _session()
+    try:
+        return post_index.stats(session, int(SETTINGS.get("recommendRangeDays") or 0))
+    finally:
+        session.close()
+
+
+@app.post("/api/recommendations/refresh")
+def recommendations_refresh(payload: RecommendRefreshPayload | None = None) -> dict:
+    """게시물 인덱스를 (재)구축한다. source_id 지정 시 해당 소스만."""
+    payload = payload or RecommendRefreshPayload()
+    session = _session()
+    try:
+        if payload.source_id:
+            source = models.get_source(session, int(payload.source_id))
+            if source is None:
+                raise HTTPException(status_code=404, detail="source not found")
+            result = post_index.refresh_source(
+                session, models.source_to_dict(session, source)
+            )
+        else:
+            result = post_index.refresh_all(session)
+    finally:
+        session.close()
+    error_logger.log(
+        "INFO",
+        "recommend",
+        "게시물 인덱스 갱신",
+        scope="system",
+        context={"created": result.get("created"), "updated": result.get("updated")},
+    )
+    return {"ok": True, "result": result, "stats": recommendations_status()}
+
+
+@app.get("/api/posts/{post_row_id}/thumbnail")
+def post_thumbnail(post_row_id: int, request: Request, full: int = 0) -> FileResponse:
+    """인덱스된 게시물의 대표 미디어를 서빙(외부 접속은 축소본)."""
+    session = _session()
+    try:
+        row = session.get(models.PostIndex, post_row_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="post not found")
+        source_id = row.source_id
+        media_rel = row.media_rel
+    finally:
+        session.close()
+    directory = _source_directory(source_id) if source_id else None
+    if not directory or not media_rel:
+        raise HTTPException(status_code=404, detail="media not found")
+    abs_path = os.path.realpath(os.path.join(directory, media_rel))
+    base = os.path.realpath(directory)
+    if abs_path != base and not abs_path.startswith(base + os.sep):
+        raise HTTPException(status_code=403, detail="forbidden")
+    if not os.path.isfile(abs_path):
+        raise HTTPException(status_code=404, detail="media not found")
+    media_type = mimetypes.guess_type(abs_path)[0] or "application/octet-stream"
+    client_host = request.client.host if request.client else None
+    serve_path = abs_path
+    if not full and not utils.is_loopback(client_host):
+        thumb = ensure_thumbnail(abs_path, os.path.getmtime(abs_path))
+        if thumb:
+            serve_path = thumb
+            media_type = "image/jpeg"
+    return FileResponse(serve_path, media_type=media_type)
+
+
+@app.get("/recommend")
+def recommend_page() -> FileResponse:
+    """추천 페이지(새 탭용 독립 문서)."""
+    return FileResponse(os.path.join(FRONTEND_DIR, "recommend.html"), media_type="text/html")
 
 
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
