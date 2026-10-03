@@ -872,15 +872,77 @@
     field.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
+  var ENTITY_FIELD_SELECTOR = "input, select, textarea";
+  var FIELD_RESET_LONG_PRESS_MS = 2000;
+  var FIELD_RESET_MOVE_TOLERANCE_PX = 10;
+
   function bindEntityFieldReset(modal) {
+    var touchGesture = false;
+    var timer = null;
+    var pointerId = null;
+    var startX = 0;
+    var startY = 0;
+    var pressedField = null;
+
+    function cancelLongPress() {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+      pointerId = null;
+      pressedField = null;
+    }
+
     modal.addEventListener("contextmenu", function (event) {
-      var field = event.target.closest("input, select, textarea");
+      var field = event.target.closest(ENTITY_FIELD_SELECTOR);
       if (!field || !modal.contains(field)) {
         return;
       }
       event.preventDefault();
+      // 터치는 네이티브 contextmenu 대신 2초 롱프레스로 초기화한다.
+      if (touchGesture) {
+        return;
+      }
       resetEntityField(field);
     });
+
+    // 터치: 2초 동안 움직이지 않고 꾹 누르면 필드를 빈칸으로 초기화.
+    modal.addEventListener("pointerdown", function (event) {
+      touchGesture = event.pointerType === "touch";
+      if (!touchGesture) {
+        return;
+      }
+      var field = event.target.closest(ENTITY_FIELD_SELECTOR);
+      if (!field || !modal.contains(field)) {
+        return;
+      }
+      cancelLongPress();
+      pointerId = event.pointerId;
+      pressedField = field;
+      startX = event.clientX;
+      startY = event.clientY;
+      timer = window.setTimeout(function () {
+        var target = pressedField;
+        cancelLongPress();
+        if (target) {
+          resetEntityField(target);
+        }
+      }, FIELD_RESET_LONG_PRESS_MS);
+    }, { passive: true });
+
+    modal.addEventListener("pointermove", function (event) {
+      if (timer === null || event.pointerId !== pointerId) {
+        return;
+      }
+      if (Math.abs(event.clientX - startX) > FIELD_RESET_MOVE_TOLERANCE_PX ||
+          Math.abs(event.clientY - startY) > FIELD_RESET_MOVE_TOLERANCE_PX) {
+        cancelLongPress();
+      }
+    }, { passive: true });
+
+    modal.addEventListener("pointerup", cancelLongPress, { passive: true });
+    modal.addEventListener("pointercancel", cancelLongPress, { passive: true });
+    modal.addEventListener("scroll", cancelLongPress, { passive: true, capture: true });
   }
 
   function confirmMove(oldParentValue, newParentValue, label) {
