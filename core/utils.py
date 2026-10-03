@@ -397,6 +397,33 @@ def upload_time_from_info(info_path: str):
     return None
 
 
+def _find_info_path(directory: str, path: str, root: str | None = None):
+    """미디어 파일에 대응하는 메타 JSON 경로를 찾는다.
+
+    gallery-dl 은 ``--write-info-json`` 으로 미디어별 ``<파일명>.json`` 을 만들고
+    앱이 ``.metadata/<상대경로>`` 로 격리하므로, 격리본을 우선 조회하고
+    (이전 버전의) 미디어 옆 사이드카를 폴백으로 둔다.
+    디렉터리 공통 ``info.json``(init 이벤트, 마지막 포스트 1건)은 파일별 시각이
+    아니므로 폴백에서 제외한다.
+    """
+    candidates: list[str] = []
+    if directory:
+        try:
+            rel = os.path.relpath(path, directory)
+        except ValueError:
+            rel = ""
+        if rel and not rel.startswith(".."):
+            meta_root = os.path.join(directory, METADATA_DIRNAME)
+            candidates.append(os.path.join(meta_root, rel + ".json"))
+            candidates.append(os.path.join(meta_root, rel + ".info.json"))
+    candidates.append(path + ".info.json")
+    candidates.append(path + ".json")
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
 def list_media_events(directory: str, cluster_minutes: float = 5.0) -> list[datetime]:
     """디렉터리(재귀)의 미디어 파일에서 업로드 시각을 수집한다.
 
