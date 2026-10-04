@@ -848,11 +848,33 @@ body.db-view .app {
   flex: none;
 }
 
+/* 사이트 아이콘 배지 (소스의 🔗 대체) */
+.site-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--site-color, var(--panel-2));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  vertical-align: middle;
+}
+
 .name-text {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .name-text.folder-name {
@@ -983,6 +1005,8 @@ body.db-view .app {
   background: var(--panel-2);
   border: 1px solid var(--border);
   color: var(--muted);
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .empty-tip {
@@ -2273,12 +2297,32 @@ body.drag-multiple .db-item.drag-source {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1 1 auto;
-  min-width: 80px;
+  min-width: 0;
 }
 
 .compact-meta {
   font-size: 12px;
   white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* 좁은 화면: 개수는 이름과 경쟁하지 않고 아랫줄로 내린다 */
+@media (max-width: 620px) {
+  .db-compact-row {
+    flex-wrap: wrap;
+  }
+
+  .db-compact-row .compact-title {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .db-compact-row .compact-meta {
+    order: 30;
+    flex: 1 1 100%;
+    font-size: 11px;
+    padding-left: 2px;
+  }
 }
 
 .db-compact-row .row-actions,

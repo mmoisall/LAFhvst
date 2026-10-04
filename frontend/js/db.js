@@ -199,6 +199,46 @@
     return null;
   }
 
+  var SITE_STYLES = {
+    twitter: { label: "X", color: "#1d9bf0" },
+    pixiv: { label: "P", color: "#0096fa" },
+    bluesky: { label: "B", color: "#0a7aff" },
+    tumblr: { label: "T", color: "#3a4a63" },
+    instagram: { label: "IG", color: "#c13584" },
+    naver: { label: "N", color: "#03c75a" },
+    naverwebtoon: { label: "NW", color: "#00b34a" },
+    deviantart: { label: "DA", color: "#05cc47" },
+    artstation: { label: "AS", color: "#13aff0" },
+    furaffinity: { label: "FA", color: "#ff8f00" },
+    e621: { label: "E6", color: "#152f56" },
+    danbooru: { label: "DB", color: "#00659e" },
+    gelbooru: { label: "GB", color: "#a9825f" },
+    sankaku: { label: "SB", color: "#1f6feb" },
+    baraag: { label: "BA", color: "#6b4fbb" },
+    kemono: { label: "K", color: "#f96854" },
+    "the-collection": { label: "TC", color: "#e91e63" },
+    rule34: { label: "R34", color: "#8bc34a" }
+  };
+
+  function siteChipHtml(site, extraClass) {
+    var name = String(site || "").trim();
+    if (!name) {
+      return '<span class="type-icon" title="사이트 미상">🔗</span>';
+    }
+    var meta = SITE_STYLES[name.toLowerCase()];
+    if (!meta) {
+      var letters = name.replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase() || "?";
+      var hue = 0;
+      for (var i = 0; i < name.length; i += 1) {
+        hue = (hue * 31 + name.charCodeAt(i)) % 360;
+      }
+      meta = { label: letters, color: "hsl(" + hue + ", 55%, 42%)" };
+    }
+    return '<span class="site-chip' + (extraClass ? " " + extraClass : "") +
+      '" style="--site-color:' + meta.color + '" title="' + escapeHtml(name) + '">' +
+      escapeHtml(meta.label) + "</span>";
+  }
+
   function escapeHtml(value) {
     return String(value === null || value === undefined ? "" : value)
       .replace(/&/g, "&amp;")
@@ -380,7 +420,7 @@
             '</span><span class="count-badge">' + count + "</span></div></td>";
         }
         var label = item.name || item.url || "(이름 없음)";
-        return '<td class="col-name"><div class="cell-name"><span class="type-icon">🔗</span>' +
+        return '<td class="col-name"><div class="cell-name">' + siteChipHtml(item.site) +
           '<a class="source-link" href="' + escapeHtml(item.url) +
           '" target="_blank" rel="noreferrer">' + escapeHtml(label) + "</a></div></td>";
       }
@@ -531,7 +571,7 @@
   function gridCard(item, index) {
     var key = itemKey(item);
     var selected = state.selection[key] ? " selected-row" : "";
-    var typeIcon = item.type === "folder" ? "📁" : "🔗";
+    var typeIcon = item.type === "folder" ? "📁" : siteChipHtml(item.site);
     var handle = state.manualOrder ? '<span class="drag-handle" title="드래그로 순서 변경">⠿</span>' : "";
     return '<article class="db-grid-card db-item' + selected + '" data-key="' + key +
       '" data-type="' + item.type + '" data-id="' + item.id + '">' +
@@ -552,7 +592,7 @@
   function compactRow(item, index) {
     var key = itemKey(item);
     var selected = state.selection[key] ? " selected-row" : "";
-    var typeIcon = item.type === "folder" ? "📁" : "🔗";
+    var typeIcon = item.type === "folder" ? "📁" : siteChipHtml(item.site);
     var handle = state.manualOrder ? '<span class="drag-handle" title="드래그로 순서 변경">⠿</span>' : "";
     return '<div class="db-compact-row db-item' + selected + '" data-key="' + key +
       '" data-type="' + item.type + '" data-id="' + item.id + '">' + handle +
