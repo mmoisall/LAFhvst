@@ -17,7 +17,8 @@ dist/
 data/
 log/
 *.log
-twitter - gamou131 - gamou131/
+# 다운로드 폴더(<site> - <key> - <name>, 이름이 바뀌어도 무시)
+twitter - gamou131 - */
 
 # OS / editor
 .DS_Store
