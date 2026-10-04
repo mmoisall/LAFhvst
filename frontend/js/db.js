@@ -1149,6 +1149,9 @@
   }
 
   var rowPressTimer = null;
+  var ROW_LONG_PRESS_MS = 450;
+  var ROW_PRESS_TOLERANCE_PX = 10;
+  var ROW_PRESS_TOLERANCE_TOUCH_PX = 16;
   var sortableMain = null;
   var dragActive = false;
   var pendingRender = false;
@@ -1178,32 +1181,30 @@
       if (event.button !== undefined && event.button !== 0) {
         return;
       }
-      if (touchMode) {
-        return;
-      }
-      if (event.pointerType && event.pointerType !== "mouse") {
-        return;
-      }
       var item = itemByKey(row.dataset.key);
       if (!item) {
         return;
       }
       row._pressX = event.clientX;
       row._pressY = event.clientY;
+      row._pressTouch = event.pointerType === "touch";
       if (rowPressTimer) {
         window.clearTimeout(rowPressTimer);
       }
+      // 롱프레스 = 즉시 선택 모드 (움직이지 않아도 진입)
       rowPressTimer = window.setTimeout(function () {
         rowPressTimer = null;
         row.dataset.longPressed = "1";
         selectItem(item, true);
-      }, 450);
+      }, ROW_LONG_PRESS_MS);
     });
     row.addEventListener("pointermove", function (event) {
       if (!rowPressTimer) {
         return;
       }
-      if (Math.abs(event.clientX - row._pressX) > 10 || Math.abs(event.clientY - row._pressY) > 10) {
+      var limit = row._pressTouch ? ROW_PRESS_TOLERANCE_TOUCH_PX : ROW_PRESS_TOLERANCE_PX;
+      if (Math.abs(event.clientX - row._pressX) > limit ||
+          Math.abs(event.clientY - row._pressY) > limit) {
         window.clearTimeout(rowPressTimer);
         rowPressTimer = null;
       }
@@ -1358,6 +1359,10 @@
       scrollSpeed: 14,
       onStart: function (evt) {
         dragActive = true;
+        if (rowPressTimer) {
+          window.clearTimeout(rowPressTimer);
+          rowPressTimer = null;
+        }
         var item = evt && evt.item ? itemByKey(evt.item.dataset.key) : null;
         if (touchMode && item && !state.selection[itemKey(item)]) {
           selectItem(item, true);
@@ -1458,7 +1463,25 @@
     return { kind: "folder", id: folder.id, name: folder.name || "폴더" };
   }
 
-  function resolveDropTarget(evt) {
+  function blockedDropFolders(evt, group) {
+    var blocked = {};
+    (group || []).forEach(function (entry) {
+      if (entry && entry.type === "folder") {
+        blocked[entry.id] = true;
+      }
+    });
+    // 함께 끌린 그룹이 없어도, 끌고 있는 폴더 자신은 대상에서 제외한다.
+    if (evt && evt.item && evt.item.dataset && evt.item.dataset.type === "folder") {
+      var dragged = itemByKey(evt.item.dataset.key);
+      if (dragged) {
+        blocked[dragged.id] = true;
+      }
+    }
+    return blocked;
+  }
+
+  function resolveDropTarget(evt, group) {
+    var blocked = blockedDropFolders(evt, group);
     var crumb = resolveCrumbTarget(evt);
     if (crumb) {
       return crumb;
@@ -1467,14 +1490,17 @@
     if (coords) {
       var row = folderRowAt(coords.x, coords.y);
       var target = folderTargetFromElement(row);
-      if (target) {
+      if (target && !blocked[target.id]) {
         return target;
       }
     }
     var container = activeContainer();
     var candidate = container ? container.children[evt.newIndex] : null;
     if (candidate && candidate.dataset && candidate.dataset.type === "folder" && candidate !== evt.item) {
-      return folderTargetFromElement(candidate);
+      var fallback = folderTargetFromElement(candidate);
+      if (fallback && !blocked[fallback.id]) {
+        return fallback;
+      }
     }
     return null;
   }
@@ -1500,6 +1526,14 @@
       return;
     }
     if (target.id === state.folderId) {
+      render();
+      return;
+    }
+    var selfDrop = group.some(function (entry) {
+      return entry && entry.type === "folder" && entry.id === target.id;
+    });
+    if (selfDrop) {
+      // 폴더를 자기 자신(또는 함께 끌린 폴더) 위로 놓은 경우 → 무시
       render();
       return;
     }
@@ -1622,7 +1656,7 @@
       handleReorderEnd(evt, item, groupItems);
       return;
     }
-    var target = resolveDropTarget(evt);
+    var target = resolveDropTarget(evt, groupItems);
     var moved = evt.oldIndex !== evt.newIndex;
     window.setTimeout(function () {
       if (!item || !groupItems.length) {
