@@ -1148,7 +1148,8 @@
     });
   }
 
-  var rowPressTimer = null;
+  var rowPress = null;
+  var rowPressGuardsBound = false;
   var ROW_LONG_PRESS_MS = 450;
   var ROW_PRESS_TOLERANCE_PX = 10;
   var ROW_PRESS_TOLERANCE_TOUCH_PX = 16;
@@ -1173,6 +1174,55 @@
     }
   }
 
+  function cancelRowPress() {
+    if (rowPress && rowPress.timer) {
+      window.clearTimeout(rowPress.timer);
+    }
+    rowPress = null;
+  }
+
+  function rowStillUnderPointer(press) {
+    if (!press || !press.row || !press.row.isConnected) {
+      return false;
+    }
+    var element = document.elementFromPoint(press.x, press.y);
+    if (!element) {
+      // 렌더링되지 않는 상태(백그라운드 탭 등)에서는 판단 불가 → 스크롤/이동 가드에 맡긴다
+      return true;
+    }
+    return element === press.row || press.row.contains(element);
+  }
+
+  // 롱프레스 취소 가드(문서 전역 1회 바인딩).
+  //  - 손가락이 움직였거나(스크롤 포함) 스크롤 이벤트가 나면 취소
+  //  - pointermove 는 행이 아니라 document(capture)에서 받는다: 스크롤로 행이
+  //    손가락 밑에서 벗어나도 이벤트를 놓치지 않기 위함
+  function bindRowPressGuards() {
+    if (rowPressGuardsBound) {
+      return;
+    }
+    rowPressGuardsBound = true;
+    document.addEventListener("pointermove", function (event) {
+      if (!rowPress || event.pointerId !== rowPress.pointerId) {
+        return;
+      }
+      var limit = rowPress.touch ? ROW_PRESS_TOLERANCE_TOUCH_PX : ROW_PRESS_TOLERANCE_PX;
+      if (Math.abs(event.clientX - rowPress.x) > limit ||
+          Math.abs(event.clientY - rowPress.y) > limit) {
+        cancelRowPress();
+      }
+    }, { passive: true, capture: true });
+    document.addEventListener("pointerup", function (event) {
+      if (rowPress && event.pointerId === rowPress.pointerId) {
+        cancelRowPress();
+      }
+    }, { passive: true, capture: true });
+    document.addEventListener("pointercancel", cancelRowPress, { passive: true, capture: true });
+    document.addEventListener("scroll", cancelRowPress, { passive: true, capture: true });
+    window.addEventListener("blur", cancelRowPress);
+    window.addEventListener("resize", cancelRowPress);
+  }
+
   function bindRowPointer(row) {
     row.addEventListener("pointerdown", function (event) {
       if (event.target.closest("a, button, input, select, textarea, .tag-chip")) {
@@ -1185,35 +1235,34 @@
       if (!item) {
         return;
       }
-      row._pressX = event.clientX;
-      row._pressY = event.clientY;
-      row._pressTouch = event.pointerType === "touch";
-      if (rowPressTimer) {
-        window.clearTimeout(rowPressTimer);
-      }
+      cancelRowPress();
       // 롱프레스 = 즉시 선택 모드 (움직이지 않아도 진입)
-      rowPressTimer = window.setTimeout(function () {
-        rowPressTimer = null;
-        row.dataset.longPressed = "1";
-        selectItem(item, true);
+      var press = {
+        item: item,
+        row: row,
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        touch: event.pointerType === "touch",
+        timer: null
+      };
+      press.timer = window.setTimeout(function () {
+        var active = rowPress;
+        rowPress = null;
+        if (!active || active !== press) {
+          return;
+        }
+        // 스크롤로 아이템이 손가락 밑에서 벗어났으면 선택하지 않는다
+        if (!rowStillUnderPointer(press)) {
+          return;
+        }
+        press.row.dataset.longPressed = "1";
+        selectItem(press.item, true);
       }, ROW_LONG_PRESS_MS);
-    });
-    row.addEventListener("pointermove", function (event) {
-      if (!rowPressTimer) {
-        return;
-      }
-      var limit = row._pressTouch ? ROW_PRESS_TOLERANCE_TOUCH_PX : ROW_PRESS_TOLERANCE_PX;
-      if (Math.abs(event.clientX - row._pressX) > limit ||
-          Math.abs(event.clientY - row._pressY) > limit) {
-        window.clearTimeout(rowPressTimer);
-        rowPressTimer = null;
-      }
+      rowPress = press;
     });
     row.addEventListener("pointerup", function (event) {
-      if (rowPressTimer) {
-        window.clearTimeout(rowPressTimer);
-        rowPressTimer = null;
-      }
+      cancelRowPress();
       if (event.pointerType === "mouse") {
         return;
       }
@@ -1359,10 +1408,7 @@
       scrollSpeed: 14,
       onStart: function (evt) {
         dragActive = true;
-        if (rowPressTimer) {
-          window.clearTimeout(rowPressTimer);
-          rowPressTimer = null;
-        }
+        cancelRowPress();
         var item = evt && evt.item ? itemByKey(evt.item.dataset.key) : null;
         if (touchMode && item && !state.selection[itemKey(item)]) {
           selectItem(item, true);
@@ -2098,6 +2144,7 @@
       render();
     });
     bindTouchUpgrade();
+    bindRowPressGuards();
     wireToolbar();
     wireViewControls();
     bindWheelHorizontalScroll();
