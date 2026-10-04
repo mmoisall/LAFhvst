@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>LAFhvst</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="css/style.css?v=46">
+  <link rel="stylesheet" href="css/style.css?v=49">
 </head>
 <body>
   <main class="app">
@@ -575,6 +575,16 @@
       </div>
 
       <div class="modal-pane active" data-pane="basic">
+        <div class="form-group hidden" id="entityBatchScopeWrap">
+          <label class="label-help" for="entityBatchScope">적용 범위<span class="help-icon" role="button" tabindex="0" data-help="선택한 항목만, 또는 하위 폴더/소스까지 함께 수정합니다. 폴더를 선택하면 그 안의 항목에도 적용됩니다.">?</span></label>
+          <select id="entityBatchScope">
+            <option value="only">선택한 항목만</option>
+            <option value="1">하위 1단계까지</option>
+            <option value="2">하위 2단계까지</option>
+            <option value="3">하위 3단계까지</option>
+            <option value="all">모든 하위 항목</option>
+          </select>
+        </div>
         <div class="form-group">
           <label for="entityName">이름</label>
           <input type="text" id="entityName" placeholder="이름을 입력하세요">
@@ -679,10 +689,15 @@
           <label class="label-help" for="entityArgs">추가 실행 옵션 (args, 줄바꿈/쉼표 구분)<span class="help-icon" role="button" tabindex="0" data-help="이 소스에만 적용되는 gallery-dl 추가 옵션입니다. 비우면 전역 기본값(없음) 사용.">?</span></label>
           <textarea id="entityArgs" rows="2"></textarea>
         </div>
-        <label class="setting-row">
-          <span class="label-help">YAML 메타데이터 추가 생성<span class="help-icon" role="button" tabindex="0" data-help="JSON(info.json)은 항상 생성됩니다. 켜면 .metadata 폴더에 YAML(.yaml)도 함께 생성합니다.">?</span></span>
-          <input type="checkbox" id="entityMetadataYaml">
-        </label>
+        <div class="form-group">
+          <label class="label-help" for="entityMetadataYaml">YAML 메타데이터 추가 생성<span class="help-icon" role="button" tabindex="0" data-help="JSON(info.json)은 항상 생성됩니다. 켜면 .metadata 폴더에 YAML(.yaml)도 함께 생성합니다. 상속=상위/전역 설정을 따름, 전역 설정=전역 기본값을 직접 지정.">?</span></label>
+          <select id="entityMetadataYaml">
+            <option value="__inherit__">상속 (상위/전역 따름)</option>
+            <option value="__global__">전역 설정</option>
+            <option value="1">사용</option>
+            <option value="0">사용 안 함</option>
+          </select>
+        </div>
         <div class="alt-actions">
           <button id="entityMetaScanBtn" class="btn btn-sm" type="button">메타 미리보기</button>
           <button id="entityMetaMigrateBtn" class="btn btn-sm primary" type="button">메타데이터 정리</button>
@@ -923,20 +938,20 @@
 
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script src="js/vendor/Sortable.min.js?v=46"></script>
-  <script src="js/api.js?v=46"></script>
-  <script src="js/sites.js?v=46"></script>
-  <script src="js/help.js?v=46"></script>
-  <script src="js/urlsync.js?v=46"></script>
-  <script src="js/nav.js?v=46"></script>
-  <script src="js/modals.js?v=46"></script>
-  <script src="js/db.js?v=46"></script>
-  <script src="js/profiles.js?v=46"></script>
-  <script src="js/rules.js?v=46"></script>
-  <script src="js/watcher.js?v=46"></script>
-  <script src="js/logs.js?v=46"></script>
-  <script src="js/home.js?v=46"></script>
-  <script src="js/update.js?v=46"></script>
-  <script src="js/app.js?v=46"></script>
+  <script src="js/vendor/Sortable.min.js?v=49"></script>
+  <script src="js/api.js?v=49"></script>
+  <script src="js/sites.js?v=49"></script>
+  <script src="js/help.js?v=49"></script>
+  <script src="js/urlsync.js?v=49"></script>
+  <script src="js/nav.js?v=49"></script>
+  <script src="js/modals.js?v=49"></script>
+  <script src="js/db.js?v=49"></script>
+  <script src="js/profiles.js?v=49"></script>
+  <script src="js/rules.js?v=49"></script>
+  <script src="js/watcher.js?v=49"></script>
+  <script src="js/logs.js?v=49"></script>
+  <script src="js/home.js?v=49"></script>
+  <script src="js/update.js?v=49"></script>
+  <script src="js/app.js?v=49"></script>
 </body>
 </html>

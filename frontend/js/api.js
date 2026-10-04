@@ -141,10 +141,10 @@
         body: { items: items, target_folder_id: targetFolderId }
       });
     },
-    batchEdit: function (items, fields) {
+    batchEdit: function (items, fields, depth) {
       return request("/api/explorer/batch-edit", {
         method: "POST",
-        body: { items: items, fields: fields }
+        body: { items: items, fields: fields, depth: depth === undefined ? null : depth }
       });
     },
     batchDelete: function (items) {

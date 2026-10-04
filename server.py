@@ -234,6 +234,7 @@ class BatchMovePayload(BaseModel):
 class BatchEditPayload(BaseModel):
     items: list[BatchItem]
     fields: dict = {}
+    depth: int | None = None
 
 
 class BatchDeletePayload(BaseModel):
@@ -1750,10 +1751,13 @@ def batch_edit(payload: BatchEditPayload) -> dict:
     session = _session()
     updated = 0
     try:
-        for item in payload.items:
-            models.apply_batch_fields(session, item.type, item.id, payload.fields)
+        targets = models.expand_batch_items(
+            session, [item.model_dump() for item in payload.items], payload.depth
+        )
+        for item in targets:
+            models.apply_batch_fields(session, item["type"], item["id"], payload.fields)
             updated += 1
-        return {"ok": True, "updated": updated}
+        return {"ok": True, "updated": updated, "selected": len(payload.items), "targets": len(targets)}
     finally:
         session.close()
 

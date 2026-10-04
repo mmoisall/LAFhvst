@@ -200,6 +200,155 @@
     return null;
   }
 
+  // ------------------------------------------------- 상속 / 전역 설정 선택
+  var INHERIT_VALUE = "__inherit__";
+  var GLOBAL_VALUE = "__global__";
+  var UNCHANGED_VALUE = "__unchanged__";
+  var CYC_LABELS = { "0": "수동", "1": "시간마다", "2": "AI" };
+
+  function optionLabel(value, labels) {
+    if (value === undefined || value === null || value === "") {
+      return "(없음)";
+    }
+    var text = String(value);
+    return labels && labels[text] != null ? labels[text] : text;
+  }
+
+  function setDynamicOption(select, value, label) {
+    if (!select) {
+      return null;
+    }
+    var option = null;
+    Array.prototype.forEach.call(select.options, function (item) {
+      if (item.value === value) {
+        option = item;
+      }
+    });
+    if (!option) {
+      option = document.createElement("option");
+      option.value = value;
+      select.insertBefore(option, select.firstChild);
+    }
+    option.textContent = label;
+    return option;
+  }
+
+  function removeDynamicOption(select, value) {
+    if (!select) {
+      return;
+    }
+    var found = [];
+    Array.prototype.forEach.call(select.options, function (item) {
+      if (item.value === value) {
+        found.push(item);
+      }
+    });
+    found.forEach(function (item) {
+      select.removeChild(item);
+    });
+  }
+
+  function explicitList(data) {
+    return (data && data.explicit_fields) || [];
+  }
+
+  // 컬럼 필드(cyc_option/log_level): 상속 / 전역 설정 / 실제값
+  function setupColumnSelect(select, data, field, labels, effectiveValue, globalValue) {
+    if (!select) {
+      return;
+    }
+    removeDynamicOption(select, UNCHANGED_VALUE);
+    setDynamicOption(select, INHERIT_VALUE,
+      "상속 (현재: " + optionLabel(effectiveValue, labels) + ")");
+    setDynamicOption(select, GLOBAL_VALUE,
+      "전역 설정 (" + optionLabel(globalValue, labels) + ")");
+    if (!data || !data.id) {
+      select.value = INHERIT_VALUE;
+      return;
+    }
+    var marked = explicitList(data).indexOf(field) >= 0;
+    if (!marked && String(data[field] != null ? data[field] : "") !== String(globalValue)) {
+      marked = true; // 레거시: 마커 없이 값이 다르면 직접 설정으로 간주
+    }
+    select.value = marked
+      ? String(data[field] != null ? data[field] : globalValue)
+      : INHERIT_VALUE;
+  }
+
+  // config 키: 키가 있으면 직접 설정, 없으면 상속
+  function setupConfigSelect(select, data, field, labels, effectiveValue, globalValue) {
+    if (!select) {
+      return;
+    }
+    removeDynamicOption(select, UNCHANGED_VALUE);
+    setDynamicOption(select, INHERIT_VALUE,
+      "상속 (현재: " + optionLabel(effectiveValue, labels) + ")");
+    setDynamicOption(select, GLOBAL_VALUE,
+      "전역 설정 (" + optionLabel(globalValue, labels) + ")");
+    if (!data || !data.id) {
+      select.value = INHERIT_VALUE;
+      return;
+    }
+    var own = (data.config || {})[field];
+    select.value = own === undefined || own === null ? INHERIT_VALUE : String(own);
+  }
+
+  // 일괄 수정: 기본값을 "변경 안 함"으로
+  function setupBatchSelect(select, labels) {
+    if (!select) {
+      return;
+    }
+    setDynamicOption(select, UNCHANGED_VALUE, "변경 안 함");
+    setDynamicOption(select, INHERIT_VALUE, "상속 (상위/전역 따름)");
+    setDynamicOption(select, GLOBAL_VALUE, "전역 설정");
+    select.value = UNCHANGED_VALUE;
+  }
+
+  function readColumnSelect(id, globalValue) {
+    var el = byId(id);
+    var raw = el ? el.value : INHERIT_VALUE;
+    if (raw === UNCHANGED_VALUE) {
+      return null;
+    }
+    if (raw === INHERIT_VALUE) {
+      return { value: globalValue, explicit: false };
+    }
+    if (raw === GLOBAL_VALUE) {
+      return { value: globalValue, explicit: true };
+    }
+    return { value: raw, explicit: true };
+  }
+
+  function setInheritPlaceholder(id, effectiveValue, suffix) {
+    var el = byId(id);
+    if (!el) {
+      return;
+    }
+    var text = effectiveValue === undefined || effectiveValue === null || effectiveValue === ""
+      ? "전역값"
+      : String(effectiveValue) + (suffix || "");
+    el.placeholder = "상속: " + text;
+  }
+
+  function applyExplicitFlags(config, marks) {
+    if (marks && marks.length) {
+      config.__explicit = marks;
+    } else {
+      delete config.__explicit;
+    }
+    return config;
+  }
+
+  function toggleMark(marks, field, enabled) {
+    var index = marks.indexOf(field);
+    if (enabled && index < 0) {
+      marks.push(field);
+    } else if (!enabled && index >= 0) {
+      marks.splice(index, 1);
+    }
+    return marks;
+  }
+
   function setProfileMode(mode) {
     currentProfileMode = mode === "profile" ? "profile" : "group";
     var label = byId("entityProfileModeLabel");
@@ -264,11 +413,19 @@
   function setCommonFields(data) {
     var defaults = itemDefaults();
     var isNew = !(data && data.id);
+    var effectiveColumns = (data && data.effective_columns) || {};
     byId("entityName").value = data && data.name ? data.name : "";
-    byId("entityCycOption").value = (data && data.cyc_option != null)
-      ? String(data.cyc_option) : String(defaults.cyc_option);
+    setupColumnSelect(
+      byId("entityCycOption"), data, "cyc_option", CYC_LABELS,
+      effectiveColumns.cyc_option != null ? effectiveColumns.cyc_option : defaults.cyc_option,
+      defaults.cyc_option
+    );
+    setupColumnSelect(
+      byId("entityLogLevel"), data, "log_level", null,
+      effectiveColumns.log_level || defaults.log_level,
+      defaults.log_level
+    );
     byId("entityCyc").value = (data && data.cyc != null) ? data.cyc : defaults.cyc;
-    byId("entityLogLevel").value = (data && data.log_level) ? data.log_level : defaults.log_level;
     byId("entityTags").value = data ? joinTags(data.tag_list) : "";
     byId("entityMemo").value = data && data.memo ? data.memo : "";
     if (isNew) {
@@ -293,42 +450,73 @@
       "T" + pad(parsed.getHours()) + ":" + pad(parsed.getMinutes()) + ":" + pad(parsed.getSeconds());
   }
 
-  function setDateMode(mode) {
+  var DATE_MODE_LABELS = { incremental: "증분", full: "전체", fixed: "지정 시점" };
+
+  function globalDateMode() {
+    var cfg = (window.AppSettings && window.AppSettings.itemConfig) || {};
+    var mode = String(cfg.date_mode || "incremental").toLowerCase();
+    return ["incremental", "full", "fixed"].indexOf(mode) >= 0 ? mode : "incremental";
+  }
+
+  function resolvedDateMode() {
     var select = byId("entityDateMode");
-    var fixed = byId("entityDateFixed");
-    if (select) {
-      select.value = mode || "incremental";
+    var raw = select ? select.value : INHERIT_VALUE;
+    if (raw === GLOBAL_VALUE) {
+      return globalDateMode();
     }
+    if (raw === INHERIT_VALUE) {
+      var effective = (current && current.target && current.target.effective_config) || {};
+      var mode = String(effective.date_mode || "incremental").toLowerCase();
+      return ["incremental", "full", "fixed"].indexOf(mode) >= 0 ? mode : "incremental";
+    }
+    return raw;
+  }
+
+  function updateDateFixedVisibility() {
+    var fixed = byId("entityDateFixed");
     if (fixed) {
-      fixed.classList.toggle("hidden", (mode || "incremental") !== "fixed");
+      fixed.classList.toggle("hidden", resolvedDateMode() !== "fixed");
     }
   }
 
+  function setDateMode(mode) {
+    var select = byId("entityDateMode");
+    if (select) {
+      select.value = mode || "incremental";
+    }
+    updateDateFixedVisibility();
+  }
+
   function loadDateScope(data) {
-    if (!data || !data.id) {
-      return;
-    }
     var config = (data && data.config) || {};
-    var mode = String(config.date_mode || "incremental").toLowerCase();
-    if (["incremental", "full", "fixed"].indexOf(mode) < 0) {
-      mode = "incremental";
-    }
-    setDateMode(mode);
+    var effective = (data && data.effective_config) || {};
+    var globalMode = globalDateMode();
+    setupConfigSelect(
+      byId("entityDateMode"), data, "date_mode", DATE_MODE_LABELS,
+      effective.date_mode || globalMode, globalMode
+    );
     byId("entityDateFixed").value = toLocalDateTimeInput(config.date_fixed);
+    updateDateFixedVisibility();
   }
 
   function applyDateScopeConfig(config) {
     var select = byId("entityDateMode");
-    var mode = select ? select.value : "incremental";
+    var raw = select ? select.value : INHERIT_VALUE;
+    var mode = raw;
     delete config.date_mode;
     delete config.date_fixed;
+    if (raw === GLOBAL_VALUE) {
+      mode = globalDateMode();
+    } else if (raw === INHERIT_VALUE) {
+      mode = "";
+    }
     if (mode === "full") {
       config.date_mode = "full";
     } else if (mode === "fixed") {
-      var raw = byId("entityDateFixed").value;
-      if (raw) {
+      var rawFixed = byId("entityDateFixed").value;
+      if (rawFixed) {
         config.date_mode = "fixed";
-        config.date_fixed = raw.replace("T", " ") + (raw.length <= 16 ? ":00" : "");
+        config.date_fixed = rawFixed.replace("T", " ") + (rawFixed.length <= 16 ? ":00" : "");
       }
     }
     var retry = byId("entityRetryDelay");
@@ -348,12 +536,19 @@
     return isNaN(value) ? null : value;
   }
 
+  function pickEffective(primary, fallback) {
+    return primary === undefined || primary === null || primary === "" ? fallback : primary;
+  }
+
   function loadGdlFields(data) {
     var config = (data && data.config) || {};
-    var basis = byId("entityDateBasis");
-    if (basis) {
-      basis.value = config.date_basis || (window.AppSettings && window.AppSettings.itemDateBasis) || "filter";
-    }
+    var effective = (data && data.effective_config) || {};
+    var settings = window.AppSettings || {};
+    var globalBasis = settings.itemDateBasis || "filter";
+    setupConfigSelect(
+      byId("entityDateBasis"), data, "date_basis", null,
+      effective.date_basis || globalBasis, globalBasis
+    );
     var sleepReq = config.sleep_request;
     var retriesEl = byId("entityRetries");
     var timeoutEl = byId("entityTimeout");
@@ -365,24 +560,40 @@
     if (minEl) { minEl.value = Array.isArray(sleepReq) && sleepReq.length ? sleepReq[0] : ""; }
     if (maxEl) { maxEl.value = Array.isArray(sleepReq) && sleepReq.length > 1 ? sleepReq[1] : ""; }
     if (argsEl) { argsEl.value = Array.isArray(config.args) ? config.args.join("\n") : ""; }
+
+    // 비우면 상속 — 실제 적용될 값을 placeholder 로 보여준다.
+    var effSleepReq = Array.isArray(effective.sleep_request) ? effective.sleep_request : [];
+    setInheritPlaceholder("entityRetries", pickEffective(effective.retries, settings.itemRetries));
+    setInheritPlaceholder("entityTimeout", pickEffective(effective.timeout, settings.itemTimeout), "초");
+    setInheritPlaceholder("entitySleepReqMin", pickEffective(effSleepReq[0], settings.itemSleepRequestMin), "초");
+    setInheritPlaceholder("entitySleepReqMax", pickEffective(effSleepReq[1], settings.itemSleepRequestMax), "초");
+    setInheritPlaceholder("entityRetryDelay", pickEffective(effective.retry_delay, settings.itemRetryDelay), "초");
+
     var yamlEl = byId("entityMetadataYaml");
     if (yamlEl) {
-      var effective = (data && data.effective_config) || {};
-      var yamlVal = effective.metadata_yaml;
-      if (yamlVal == null && data && data.config) {
-        yamlVal = data.config.metadata_yaml;
+      var ownHas = Object.prototype.hasOwnProperty.call(config, "metadata_yaml");
+      var effectiveYaml = effective.metadata_yaml;
+      if (effectiveYaml === undefined || effectiveYaml === null) {
+        effectiveYaml = settings.itemMetadataYaml;
       }
-      if (yamlVal == null) {
-        yamlVal = window.AppSettings && window.AppSettings.itemMetadataYaml === true;
-      }
-      yamlEl.checked = yamlVal === true;
+      var globalYaml = settings.itemMetadataYaml === true;
+      var flag = function (value) { return value === true ? "사용" : "사용 안 함"; };
+      setDynamicOption(yamlEl, INHERIT_VALUE, "상속 (현재: " + flag(effectiveYaml) + ")");
+      setDynamicOption(yamlEl, GLOBAL_VALUE, "전역 설정 (" + flag(globalYaml) + ")");
+      yamlEl.value = ownHas ? (config.metadata_yaml === true ? "1" : "0") : INHERIT_VALUE;
     }
   }
 
   function applyGdlConfig(config) {
     var basis = byId("entityDateBasis");
     if (basis) {
-      config.date_basis = basis.value;
+      if (basis.value === INHERIT_VALUE) {
+        delete config.date_basis;
+      } else if (basis.value === GLOBAL_VALUE) {
+        config.date_basis = (window.AppSettings && window.AppSettings.itemDateBasis) || "filter";
+      } else {
+        config.date_basis = basis.value;
+      }
     }
     var retries = parseNumField("entityRetries");
     if (retries != null) { config.retries = Math.max(0, Math.round(retries)); } else { delete config.retries; }
@@ -405,21 +616,15 @@
     }
     var yamlEl = byId("entityMetadataYaml");
     if (yamlEl) {
-      var desired = yamlEl.checked === true;
-      var ownCfg = (current && current.target && current.target.config) || {};
-      var ownHas = Object.prototype.hasOwnProperty.call(ownCfg, "metadata_yaml");
-      var effective = (current && current.target && current.target.effective_config) || {};
-      if (desired) {
-        if (ownHas || effective.metadata_yaml !== true) {
-          config.metadata_yaml = true;
-        } else {
-          delete config.metadata_yaml;
-        }
-      } else if (!ownHas && effective.metadata_yaml !== true) {
-        delete config.metadata_yaml;
-      } else {
+      delete config.metadata_yaml;
+      if (yamlEl.value === "1") {
+        config.metadata_yaml = true;
+      } else if (yamlEl.value === "0") {
         config.metadata_yaml = false;
+      } else if (yamlEl.value === GLOBAL_VALUE) {
+        config.metadata_yaml = (window.AppSettings && window.AppSettings.itemMetadataYaml) === true;
       }
+      // INHERIT_VALUE → 키 삭제(상속)
     }
     return config;
   }
@@ -720,6 +925,7 @@
     byId("entityRetryWrap").classList.add("hidden");
     byId("entityLogWrap").classList.add("hidden");
     byId("entityAltWrap").classList.remove("hidden");
+    byId("entityBatchScopeWrap").classList.add("hidden");
     setAvailableTabs(["basic", "collect", "profile", "alt"]);
     setModalTab("basic");
     setCommonFields(folder);
@@ -756,6 +962,7 @@
     byId("entityRetryWrap").classList.remove("hidden");
     byId("entityAltWrap").classList.remove("hidden");
     byId("entityLogWrap").classList.remove("hidden");
+    byId("entityBatchScopeWrap").classList.add("hidden");
     setAvailableTabs(["basic", "collect", "profile", "alt", "log"]);
     setModalTab("basic");
     setCommonFields(source);
@@ -791,7 +998,7 @@
 
   function openBatchEdit(targets) {
     current = { mode: "batch", target: null, targets: targets };
-    byId("entityModalTitle").textContent = "일괄 수정 (입력한 값만 적용)";
+    byId("entityModalTitle").textContent = "일괄 수정 (변경한 값만 적용)";
     byId("entityUrlGroup").classList.add("hidden");
     byId("entitySiteKeyGroup").classList.add("hidden");
     byId("entityParent").parentElement.classList.add("hidden");
@@ -800,12 +1007,21 @@
     byId("entityRetryWrap").classList.add("hidden");
     byId("entityAltWrap").classList.add("hidden");
     byId("entityLogWrap").classList.add("hidden");
+    byId("entityBatchScopeWrap").classList.remove("hidden");
     byId("entityCollectAllBtn").hidden = true;
     byId("entityName").parentElement.classList.add("hidden");
     byId("entityTabs").classList.add("hidden");
     setModalTab("basic");
     setCommonFields(null);
+    setupBatchSelect(byId("entityCycOption"), CYC_LABELS);
+    setupBatchSelect(byId("entityLogLevel"), null);
     byId("entityCyc").value = "";
+    byId("entityTags").value = "";
+    byId("entityMemo").value = "";
+    var scope = byId("entityBatchScope");
+    if (scope) {
+      scope.value = "only";
+    }
     byId("entitySavePath").textContent = "선택 " + targets.length + "개 항목에 적용됩니다.";
     showModal("entityModal");
   }
@@ -959,12 +1175,20 @@
     var config = Object.assign({}, current.target ? current.target.config : {});
     applyDateScopeConfig(config);
     applyAltConfig(config);
+    var defaults = itemDefaults();
+    var marks = (current.target && current.target.explicit_fields
+      ? current.target.explicit_fields.slice() : []);
+    var cycOption = readColumnSelect("entityCycOption", defaults.cyc_option);
+    var logLevel = readColumnSelect("entityLogLevel", defaults.log_level);
+    toggleMark(marks, "cyc_option", cycOption.explicit);
+    toggleMark(marks, "log_level", logLevel.explicit);
+    applyExplicitFlags(config, marks);
     var payload = {
       name: byId("entityName").value.trim(),
       config: config,
-      cyc_option: parseInt(byId("entityCycOption").value, 10) || 0,
+      cyc_option: parseInt(cycOption.value, 10) || 0,
       cyc: parseInt(byId("entityCyc").value, 10) || 1,
-      log_level: byId("entityLogLevel").value,
+      log_level: logLevel.value,
       tag_list: splitTags(byId("entityTags").value),
       memo: byId("entityMemo").value
     };
@@ -991,15 +1215,23 @@
     var config = Object.assign({}, current.target ? current.target.config : {});
     applyDateScopeConfig(config);
     applyAltConfig(config);
+    var defaults = itemDefaults();
+    var marks = (current.target && current.target.explicit_fields
+      ? current.target.explicit_fields.slice() : []);
+    var cycOption = readColumnSelect("entityCycOption", defaults.cyc_option);
+    var logLevel = readColumnSelect("entityLogLevel", defaults.log_level);
+    toggleMark(marks, "cyc_option", cycOption.explicit);
+    toggleMark(marks, "log_level", logLevel.explicit);
+    applyExplicitFlags(config, marks);
     var payload = {
       name: byId("entityName").value.trim(),
       url: byId("entityUrl").value.trim(),
       site: byId("entitySite").value.trim(),
       key: byId("entityKey").value.trim(),
       config: config,
-      cyc_option: parseInt(byId("entityCycOption").value, 10) || 0,
+      cyc_option: parseInt(cycOption.value, 10) || 0,
       cyc: parseInt(byId("entityCyc").value, 10) || 1,
-      log_level: byId("entityLogLevel").value,
+      log_level: logLevel.value,
       tag_list: splitTags(byId("entityTags").value),
       memo: byId("entityMemo").value
     };
@@ -1024,6 +1256,7 @@
 
   function saveBatch() {
     var fields = {};
+    var defaults = itemDefaults();
     var tags = splitTags(byId("entityTags").value);
     if (tags.length) {
       fields.tag_list = tags;
@@ -1034,15 +1267,42 @@
     }
     var cyc = byId("entityCyc").value;
     if (String(cyc).trim() !== "") {
-      fields.cyc = parseInt(cyc, 10);
+      fields.cyc = parseInt(cyc, 10) || 1;
     }
-    if (byId("entityLogLevel").value) {
-      fields.log_level = byId("entityLogLevel").value;
+    // 컬럼 필드: 변경 안 함 / 상속 / 전역 설정 / 실제값
+    var marks = {};
+    var cycOption = readColumnSelect("entityCycOption", defaults.cyc_option);
+    if (cycOption) {
+      fields.cyc_option = parseInt(cycOption.value, 10) || 0;
+      marks.cyc_option = cycOption.explicit;
+    }
+    var logLevel = readColumnSelect("entityLogLevel", defaults.log_level);
+    if (logLevel) {
+      fields.log_level = logLevel.value;
+      marks.log_level = logLevel.explicit;
+    }
+    if (Object.keys(marks).length) {
+      fields.explicit_fields = marks;
     }
     if (!Object.keys(fields).length) {
       return Promise.resolve(null);
     }
-    return window.API.batchEdit(current.targets, fields);
+    return window.API.batchEdit(current.targets, fields, readBatchDepth());
+  }
+
+  function readBatchDepth() {
+    var el = byId("entityBatchScope");
+    if (!el) {
+      return null;
+    }
+    if (el.value === "all") {
+      return 0;
+    }
+    if (el.value === "only" || el.value === "") {
+      return null;
+    }
+    var depth = parseInt(el.value, 10);
+    return isNaN(depth) ? null : depth;
   }
 
   function saveEntity() {
@@ -1228,8 +1488,8 @@
         }
       });
     }
-    byId("entityDateMode").addEventListener("change", function (event) {
-      setDateMode(event.target.value);
+    byId("entityDateMode").addEventListener("change", function () {
+      updateDateFixedVisibility();
     });
     byId("entityCancel").addEventListener("click", closeEntity);
     var modeLabel = byId("entityProfileModeLabel");

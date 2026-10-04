@@ -73,6 +73,41 @@ def _now() -> datetime:
     return datetime.now()
 
 
+# config 안에 '직접 설정한 필드' 목록을 기록하는 키.
+#   - 값이 없으면(키 없음) 해당 필드는 상속(부모/전역) 을 따른다.
+#   - 목록에 있으면 직접 설정한 값이며, 그 값이 전역 기본값과 같으면 "전역 설정"으로 본다.
+EXPLICIT_KEY = "__explicit"
+
+
+def _explicit_set(raw_config) -> set:
+    values = (raw_config or {}).get(EXPLICIT_KEY)
+    if isinstance(values, dict):
+        return {str(key) for key, flag in values.items() if flag}
+    if isinstance(values, (list, tuple, set)):
+        return {str(item) for item in values}
+    return set()
+
+
+def explicit_fields(own) -> set:
+    """아이템 config.__explicit 에 기록된 '직접 설정' 필드 집합."""
+    return _explicit_set(_load_json(getattr(own, "config", None)))
+
+
+def with_explicit(config: dict, field: str, enabled: bool) -> dict:
+    """config 사본에서 field 를 직접 설정 목록에 넣거나 뺀다."""
+    result = dict(config or {})
+    current = _explicit_set(result)
+    if enabled:
+        current.add(field)
+    else:
+        current.discard(field)
+    if current:
+        result[EXPLICIT_KEY] = sorted(current)
+    else:
+        result.pop(EXPLICIT_KEY, None)
+    return result
+
+
 DEFAULT_PROFILE_STATUS = "정상"
 DEFAULT_LEARNED_CAPACITY = 500
 DEFAULT_LEARNED_COOLDOWN_MINUTES = 15
@@ -559,13 +594,18 @@ def _compute_inherited(own, ancestor_nodes, profile_source=None, own_is_root=Fal
     defaults = item_defaults()
     default_cyc = int(defaults.get("cyc_option") or 0)
     default_log = (defaults.get("log_level") or "INFO").upper()
+    explicit = explicit_fields(own)
+    cyc_value = int(getattr(own, "cyc_option", 0) or 0)
+    log_value = (getattr(own, "log_level", None) or "INFO").upper()
+    nearest_cyc = _nearest_ancestor_raw(ancestor_nodes, "cyc_option")
+    nearest_log = _nearest_ancestor_raw(ancestor_nodes, "log_level")
+    cyc_marked = "cyc_option" in explicit
+    log_marked = "log_level" in explicit
     cyc_inherited = bool(
-        int(getattr(own, "cyc_option", 0) or 0) == default_cyc
-        and _nearest_ancestor_raw(ancestor_nodes, "cyc_option") is not None
+        not cyc_marked and cyc_value == default_cyc and nearest_cyc is not None
     )
     log_inherited = bool(
-        (getattr(own, "log_level", None) or "INFO").upper() == default_log
-        and _nearest_ancestor_raw(ancestor_nodes, "log_level") is not None
+        not log_marked and log_value == default_log and nearest_log is not None
     )
     profile_inherited = bool(
         getattr(own, "profile_id", None) is None
@@ -589,15 +629,12 @@ def _compute_inherited(own, ancestor_nodes, profile_source=None, own_is_root=Fal
         "save_path": save_path_inherited,
     }
 
-    # overridden(자체 설정): 실효값이 전역 디폴트도 아니고 상속도 아닌 경우
-    cyc_overridden = bool(
-        not cyc_inherited
-        and int(getattr(own, "cyc_option", 0) or 0) != default_cyc
-    )
-    log_overridden = bool(
-        not log_inherited
-        and (getattr(own, "log_level", None) or "INFO").upper() != default_log
-    )
+    # overridden(자체 설정): 값이 전역 디폴트와 다르면 직접 설정(레거시 마커 없음 포함)
+    cyc_overridden = bool(cyc_value != default_cyc)
+    log_overridden = bool(log_value != default_log)
+    # global(전역 설정): 마커가 있고 값이 전역 디폴트와 같은 경우
+    cyc_global = bool(cyc_marked and cyc_value == default_cyc)
+    log_global = bool(log_marked and log_value == default_log)
     own_profile = getattr(own, "profile_id", None) is not None or getattr(own, "profile_group_id", None) is not None
     profile_overridden = bool(not profile_inherited and own_profile)
     config_overridden = bool(
@@ -610,7 +647,13 @@ def _compute_inherited(own, ancestor_nodes, profile_source=None, own_is_root=Fal
         "profile": profile_overridden,
         "config": config_overridden,
         "save_path": save_path_overridden,
-    }}
+    }, "global": {
+        "cyc": cyc_global,
+        "log_level": log_global,
+    }, "effective": {
+        "cyc_option": int(nearest_cyc) if nearest_cyc is not None else default_cyc,
+        "log_level": (str(nearest_log).upper() if nearest_log else default_log),
+    }, "explicit": sorted(explicit)}
 
 
 def _resolve_effective_profile(session, own, ancestor_nodes, site=None) -> dict:
@@ -645,6 +688,12 @@ def folder_context(session, folder_id) -> dict:
             "profile_source": None,
             "inherited": {"cyc": False, "log_level": False, "profile": False, "config": False, "save_path": False},
             "overridden": {"cyc": False, "log_level": False, "profile": False, "config": False, "save_path": False},
+            "global": {},
+            "effective": {
+                "cyc_option": int(item_defaults().get("cyc_option") or 0),
+                "log_level": (item_defaults().get("log_level") or "INFO").upper(),
+            },
+            "explicit": [],
         }
     root = chain[0]
     descendants = [item.name for item in chain[1:]]
@@ -674,6 +723,9 @@ def folder_context(session, folder_id) -> dict:
         "profile_source": profile_ref["profile_source"],
         "inherited": flags["inherited"],
         "overridden": flags["overridden"],
+        "global": flags.get("global", {}),
+        "effective": flags.get("effective", {}),
+        "explicit": flags.get("explicit", []),
     }
 
 
@@ -700,6 +752,12 @@ def source_context(session, source: Source) -> dict:
                 "config": bool(_load_json(source.config)),
                 "save_path": False,
             },
+            "global": {},
+            "effective": {
+                "cyc_option": int(item_defaults().get("cyc_option") or 0),
+                "log_level": (item_defaults().get("log_level") or "INFO").upper(),
+            },
+            "explicit": sorted(explicit_fields(source)),
         }
     chain = folder_chain(session, source.folder_id)
     root = chain[0]
@@ -728,6 +786,9 @@ def source_context(session, source: Source) -> dict:
         "profile_source": profile_ref["profile_source"],
         "inherited": flags["inherited"],
         "overridden": flags["overridden"],
+        "global": flags.get("global", {}),
+        "effective": flags.get("effective", {}),
+        "explicit": flags.get("explicit", []),
     }
 
 
@@ -760,6 +821,9 @@ def folder_to_dict(session, folder: Folder, counts: dict | None = None) -> dict:
         "profile_source": context.get("profile_source"),
         "inherited": context.get("inherited", {}),
         "overridden": context.get("overridden", {}),
+        "global": context.get("global", {}),
+        "effective_columns": context.get("effective", {}),
+        "explicit_fields": context.get("explicit", []),
         "order_index": folder.order_index,
         "sub_folder_count": sub_count,
         "item_count": item_count,
@@ -800,6 +864,9 @@ def source_to_dict(session, source: Source) -> dict:
         "profile_source": context.get("profile_source"),
         "inherited": context.get("inherited", {}),
         "overridden": context.get("overridden", {}),
+        "global": context.get("global", {}),
+        "effective_columns": context.get("effective", {}),
+        "explicit_fields": context.get("explicit", []),
         "order_index": source.order_index,
         "download_directory": download_directory,
         "file_count": utils.count_directory_files(download_directory),
@@ -1138,12 +1205,80 @@ def apply_batch_fields(session, item_type: str, item_id: int, fields: dict) -> N
         "profile_group_id",
     }
     payload = {key: value for key, value in fields.items() if key in allowed}
+    if "explicit_fields" in fields:
+        item = session.get(Source if item_type == "source" else Folder, item_id)
+        if item is not None:
+            config = _load_json(item.config) or {}
+            marks = _explicit_set(config)
+            raw = fields.get("explicit_fields")
+            if isinstance(raw, dict):
+                for name, flag in raw.items():
+                    if flag:
+                        marks.add(str(name))
+                    else:
+                        marks.discard(str(name))
+            elif raw is not None:
+                marks = {str(mark) for mark in raw}
+            if marks:
+                config[EXPLICIT_KEY] = sorted(marks)
+            else:
+                config.pop(EXPLICIT_KEY, None)
+            payload["config"] = config
     if not payload:
         return
     if item_type == "source":
         update_source(session, item_id, payload)
     else:
         update_folder(session, item_id, payload)
+
+
+def expand_batch_items(session, items, depth=None) -> list[dict]:
+    """일괄 작업 대상 확장.
+
+    depth=None  → 선택한 항목만
+    depth=0     → 선택한 항목 + 모든 하위(재귀)
+    depth=n(>0) → 선택한 항목 + n단계 하위
+    """
+    base = []
+    for item in items or []:
+        item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
+        item_id = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+        if item_type in ("folder", "source") and item_id is not None:
+            base.append({"type": item_type, "id": int(item_id)})
+    if depth is None:
+        return base
+
+    collected = {(item["type"], item["id"]): item for item in base}
+    frontier = list(base)
+    level = 0
+    while frontier and (int(depth) == 0 or level < int(depth)):
+        level += 1
+        nxt = []
+        for item in frontier:
+            if item["type"] != "folder":
+                continue
+            children = (
+                session.execute(select(Folder).where(Folder.parent_id == item["id"]))
+                .scalars()
+                .all()
+            )
+            for child in children:
+                key = ("folder", child.id)
+                if key not in collected:
+                    collected[key] = {"type": "folder", "id": child.id}
+                    nxt.append(collected[key])
+            sources = (
+                session.execute(select(Source).where(Source.folder_id == item["id"]))
+                .scalars()
+                .all()
+            )
+            for source in sources:
+                key = ("source", source.id)
+                if key not in collected:
+                    collected[key] = {"type": "source", "id": source.id}
+                    nxt.append(collected[key])
+        frontier = nxt
+    return list(collected.values())
 
 
 # ---------------------------------------------------------------------------
