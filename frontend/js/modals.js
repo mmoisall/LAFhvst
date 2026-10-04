@@ -2,6 +2,7 @@
   "use strict";
 
   var current = { mode: null, target: null, targets: null };
+  var profileCache = { groups: [], profiles: [] };
   var sortable = null;
   var currentProfileMode = "group";
 
@@ -93,6 +94,7 @@
       return Promise.resolve();
     }
     return window.API.getProfileGroups().then(function (groups) {
+      profileCache.groups = groups || [];
       select.innerHTML = "";
       var noneOption = document.createElement("option");
       noneOption.value = "";
@@ -114,6 +116,7 @@
       return Promise.resolve();
     }
     return window.API.getProfiles().then(function (profiles) {
+      profileCache.profiles = profiles || [];
       select.innerHTML = "";
       var noneOption = document.createElement("option");
       noneOption.value = "";
@@ -380,6 +383,64 @@
       marks.splice(index, 1);
     }
     return marks;
+  }
+
+  function profileName(kind, id) {
+    var pool = kind === "group" ? profileCache.groups : profileCache.profiles;
+    var found = null;
+    (pool || []).forEach(function (entry) {
+      if (String(entry.id) === String(id)) {
+        found = entry;
+      }
+    });
+    if (!found) {
+      return null;
+    }
+    var label = found.name || ("#" + found.id);
+    if (found.site) {
+      label += " (" + found.site + ")";
+    }
+    if (kind === "profile" && found.is_site_default) {
+      label = "⭐ " + label;
+    }
+    return label;
+  }
+
+  function renderProfileHint(data) {
+    var hint = byId("entityProfileHint");
+    if (!hint) {
+      return;
+    }
+    var groupSelect = byId("entityProfileGroup");
+    var profileSelect = byId("entityProfile");
+    var groupValue = groupSelect ? groupSelect.value : "";
+    var profileValue = profileSelect ? profileSelect.value : "";
+    if (profileValue) {
+      hint.textContent = "사용: " + (profileName("profile", profileValue) || ("#" + profileValue));
+      return;
+    }
+    if (groupValue) {
+      hint.textContent = "사용: " + (profileName("group", groupValue) || ("#" + groupValue));
+      return;
+    }
+    // 상속(자동): 실제로 적용될 프로파일을 보여준다
+    var info = data || {};
+    var label = null;
+    if (info.effective_profile_group_id) {
+      label = profileName("group", info.effective_profile_group_id) ||
+        ("#" + info.effective_profile_group_id);
+    } else if (info.effective_profile_id) {
+      label = profileName("profile", info.effective_profile_id) ||
+        ("#" + info.effective_profile_id);
+    }
+    if (!label) {
+      hint.textContent = "자동 적용: 없음 (상위·사이트 디폴트 프로파일 없음)";
+      return;
+    }
+    var why = info.profile_source === "site_default"
+      ? "사이트 디폴트"
+      : (info.profile_source === "explicit" ? "상위에서 상속" : "자동");
+    hint.textContent = "자동 적용: " + label + " · " + why;
   }
 
   function setProfileMode(mode) {
@@ -1024,7 +1085,9 @@
     );
     setProfileMode(isEdit && folder.profile_id ? "profile" : "group");
     populateProfileGroups(isEdit ? folder.profile_group_id : null);
-    populateProfiles(isEdit ? folder.profile_id : null);
+    populateProfiles(isEdit ? folder.profile_id : null).then(function () {
+      renderProfileHint(folder);
+    });
     if (window.UrlSync) {
       window.UrlSync.reset();
     }
@@ -1067,7 +1130,9 @@
     );
     setProfileMode(isEdit && source.profile_id ? "profile" : "group");
     populateProfileGroups(isEdit ? source.profile_group_id : null);
-    populateProfiles(isEdit ? source.profile_id : null);
+    populateProfiles(isEdit ? source.profile_id : null).then(function () {
+      renderProfileHint(source);
+    });
     if (window.SiteSuggestions) {
       window.SiteSuggestions.ensure();
     }
@@ -1572,6 +1637,16 @@
     byId("entityDateMode").addEventListener("change", function () {
       updateDateFixedVisibility();
     });
+    Array.prototype.forEach.call(
+      [byId("entityProfileGroup"), byId("entityProfile")],
+      function (select) {
+        if (select) {
+          select.addEventListener("change", function () {
+            renderProfileHint(current.target);
+          });
+        }
+      }
+    );
     byId("entityCancel").addEventListener("click", closeEntity);
     var modeLabel = byId("entityProfileModeLabel");
     if (modeLabel) {
