@@ -1357,6 +1357,61 @@ def _index_source_posts(source_id: int) -> dict | None:
         session.close()
 
 
+def _relocate_alt_paths(config: dict, old_dir: str, new_dir: str) -> list[dict]:
+    """이름 변경으로 원본 경로가 바뀌면 alt/cmb 대상 경로와 폴더도 함께 갱신한다.
+
+    - 파생 기본값(`<원본>_alt`/`_cmb`)·원본 하위·원본 접두 경로는 새 이름 기준으로 치환
+    - 사용자가 지정한 외부 경로는 건드리지 않는다
+    - 실제 폴더가 있으면 함께 이동(rename 우선). 실패하면 로그만 남기고 경로는 새 기준으로 둔다.
+    """
+    if not old_dir or not new_dir:
+        return []
+    old_norm = os.path.normpath(old_dir)
+    new_norm = os.path.normpath(new_dir)
+    if old_norm == new_norm:
+        return []
+    moves = []
+    for kind, key, suffix in (("alt", "alt_paths", "_alt"), ("cmb", "cmb_paths", "_cmb")):
+        before = alt_paths.resolve_targets(config, old_norm, kind)
+        entries = config.get(key)
+        if isinstance(entries, (list, tuple)):
+            updated = []
+            for entry in entries:
+                text = str(entry).strip()
+                if not text or text.lower() == "default":
+                    updated.append(entry)
+                    continue
+                resolved = os.path.normpath(
+                    text if os.path.isabs(text) else os.path.join(old_norm, text)
+                )
+                if (
+                    resolved == old_norm + suffix
+                    or resolved.startswith(old_norm + os.sep)
+                    or resolved.startswith(old_norm + suffix)
+                ):
+                    updated.append(resolved.replace(old_norm, new_norm, 1))
+                else:
+                    updated.append(entry)
+            config[key] = updated
+        after = alt_paths.resolve_targets(config, new_norm, kind)
+        for old_target, new_target in zip(before, after):
+            if old_target == new_target:
+                continue
+            if not os.path.isdir(old_target) or os.path.exists(new_target):
+                continue
+            result = models.move_real_directory(old_target, new_target)
+            moves.append(
+                {
+                    "kind": kind,
+                    "from": old_target,
+                    "to": new_target,
+                    "ok": bool(result.get("ok")),
+                    "error": result.get("error"),
+                }
+            )
+    return moves
+
+
 def _apply_collected_title(source_id: int) -> dict | None:
     """수집된 메타데이터의 title 을 아이템 이름으로 반영한다.
 
@@ -1415,30 +1470,48 @@ def _apply_collected_title(source_id: int) -> dict | None:
             return None
 
         history = list(config.get("__name_history") or [])
+        alt_moves = _relocate_alt_paths(config, directory, new_dir)
         history.append(
             {
                 "at": datetime.now().isoformat(timespec="seconds"),
                 "from": current,
                 "to": new_name,
                 "moved": bool(move.get("moved")),
+                "alt": alt_moves or None,
             }
         )
         config["__name_history"] = history[-20:]
         config["__title"] = title
         models.update_source(session, source_id, {"name": new_name, "config": config})
+        failed_alt = [entry for entry in alt_moves if not entry.get("ok")]
         error_logger.log(
             "INFO",
             "title",
-            "이름 갱신: %s → %s%s"
-            % (current or "(없음)", new_name, " (폴더 이동)" if move.get("moved") else ""),
+            "이름 갱신: %s → %s%s%s"
+            % (
+                current or "(없음)",
+                new_name,
+                " (폴더 이동)" if move.get("moved") else "",
+                (" (대체경로 %d개 이동)" % len(alt_moves)) if alt_moves else "",
+            ),
             source_id=source_id,
             scope="source",
         )
+        for entry in failed_alt:
+            error_logger.log(
+                "WARN",
+                "title",
+                "대체경로 이동 실패(%s): %s → %s · %s"
+                % (entry.get("kind"), entry.get("from"), entry.get("to"), entry.get("error")),
+                source_id=source_id,
+                scope="source",
+            )
         return {
             "source_id": source_id,
             "from": current,
             "to": new_name,
             "moved": bool(move.get("moved")),
+            "alt_moves": alt_moves,
         }
     finally:
         session.close()
