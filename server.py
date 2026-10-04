@@ -22,6 +22,7 @@ from core import (
     browser_manager,
     browser_watcher,
     error_logger,
+    favicons,
     gdl_executor,
     kde,
     metadata,
@@ -2562,6 +2563,19 @@ def recommendations_refresh(payload: RecommendRefreshPayload | None = None) -> d
         context={"created": result.get("created"), "updated": result.get("updated")},
     )
     return {"ok": True, "result": result, "stats": recommendations_status()}
+
+
+@app.get("/api/favicon")
+def site_favicon(url: str, refresh: int = 0) -> FileResponse:
+    """소스 URL 의 사이트 파비콘(브라우저 탭 아이콘)을 캐시해 서빙한다.
+
+    없으면 받아서 `data/favicons/<host>.<ext>` 에 저장하고, 실패하면 404(프론트는 글자 배지로 폴백).
+    """
+    path = favicons.ensure(url, refresh=bool(refresh))
+    if not path:
+        raise HTTPException(status_code=404, detail="favicon not found")
+    media_type = mimetypes.guess_type(path)[0] or "image/x-icon"
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/api/posts/{post_row_id}/thumbnail")

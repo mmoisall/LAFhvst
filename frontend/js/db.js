@@ -220,7 +220,7 @@
     rule34: { label: "R34", color: "#8bc34a" }
   };
 
-  function siteChipHtml(site, extraClass) {
+  function siteChipHtml(site, url) {
     var name = String(site || "").trim();
     if (!name) {
       return '<span class="type-icon" title="사이트 미상">🔗</span>';
@@ -234,9 +234,15 @@
       }
       meta = { label: letters, color: "hsl(" + hue + ", 55%, 42%)" };
     }
-    return '<span class="site-chip' + (extraClass ? " " + extraClass : "") +
-      '" style="--site-color:' + meta.color + '" title="' + escapeHtml(name) + '">' +
-      escapeHtml(meta.label) + "</span>";
+    // 브라우저 탭 아이콘(파비콘)을 받아 덮어쓴다. 실패하면 글자 배지가 그대로 보인다.
+    var image = "";
+    if (url && /^https?:\/\//i.test(url)) {
+      image = '<img class="site-chip-img" alt="" loading="lazy" src="/api/favicon?url=' +
+        encodeURIComponent(url) + '" onerror="this.remove()">';
+    }
+    return '<span class="site-chip" style="--site-color:' + meta.color +
+      '" title="' + escapeHtml(name) + '">' +
+      '<span class="site-chip-mono">' + escapeHtml(meta.label) + "</span>" + image + "</span>";
   }
 
   function escapeHtml(value) {
@@ -420,7 +426,7 @@
             '</span><span class="count-badge">' + count + "</span></div></td>";
         }
         var label = item.name || item.url || "(이름 없음)";
-        return '<td class="col-name"><div class="cell-name">' + siteChipHtml(item.site) +
+        return '<td class="col-name"><div class="cell-name">' + siteChipHtml(item.site, item.url) +
           '<a class="source-link" href="' + escapeHtml(item.url) +
           '" target="_blank" rel="noreferrer">' + escapeHtml(label) + "</a></div></td>";
       }
@@ -571,7 +577,7 @@
   function gridCard(item, index) {
     var key = itemKey(item);
     var selected = state.selection[key] ? " selected-row" : "";
-    var typeIcon = item.type === "folder" ? "📁" : siteChipHtml(item.site);
+    var typeIcon = item.type === "folder" ? "📁" : siteChipHtml(item.site, item.url);
     var handle = state.manualOrder ? '<span class="drag-handle" title="드래그로 순서 변경">⠿</span>' : "";
     return '<article class="db-grid-card db-item' + selected + '" data-key="' + key +
       '" data-type="' + item.type + '" data-id="' + item.id + '">' +
@@ -592,7 +598,7 @@
   function compactRow(item, index) {
     var key = itemKey(item);
     var selected = state.selection[key] ? " selected-row" : "";
-    var typeIcon = item.type === "folder" ? "📁" : siteChipHtml(item.site);
+    var typeIcon = item.type === "folder" ? "📁" : siteChipHtml(item.site, item.url);
     var handle = state.manualOrder ? '<span class="drag-handle" title="드래그로 순서 변경">⠿</span>' : "";
     return '<div class="db-compact-row db-item' + selected + '" data-key="' + key +
       '" data-type="' + item.type + '" data-id="' + item.id + '">' + handle +

@@ -850,6 +850,8 @@ body.db-view .app {
 
 /* 사이트 아이콘 배지 (소스의 🔗 대체) */
 .site-chip {
+  position: relative;
+  overflow: hidden;
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -866,6 +868,21 @@ body.db-view .app {
   background: var(--site-color, var(--panel-2));
   border: 1px solid rgba(255, 255, 255, 0.18);
   vertical-align: middle;
+}
+
+.site-chip-mono {
+  line-height: 1;
+}
+
+/* 파비콘(브라우저 탭 아이콘) — 받아오면 글자 배지를 덮는다. 실패하면 img 가 제거되어 글자가 남는다. */
+.site-chip-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: inherit;
+  background: var(--panel-2);
 }
 
 .name-text {
