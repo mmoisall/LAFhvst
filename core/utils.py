@@ -424,6 +424,96 @@ def _find_info_path(directory: str, path: str, root: str | None = None):
     return None
 
 
+def _read_info_json(info_path):
+    if not info_path or not os.path.isfile(info_path):
+        return None
+    for encoding in ("utf-8", "utf-8-sig"):
+        try:
+            with open(info_path, "r", encoding=encoding) as handle:
+                data = json.load(handle)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            continue
+    return None
+
+
+# 아이템 이름으로 쓸 title 후보 — 작성자 표시명 우선, 그다음 게시물/갤러리 제목.
+_TITLE_SOURCE_FIELDS = ("user", "author", "uploader", "artist", "creator", "channel", "username")
+_TITLE_NAME_KEYS = ("nick", "display_name", "name", "username", "account")
+_TITLE_TEXT_KEYS = ("title", "gallery_title", "album_title", "description", "content", "caption")
+
+
+def _clean_title(value, limit=80):
+    """title 후보 문자열 정리(첫 줄, 공백 축약, 제어문자 제거, 길이 제한)."""
+    if value is None or isinstance(value, dict):
+        return None
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else None
+        if value is None or isinstance(value, dict):
+            return None
+    text = str(value).replace("\r", "\n").split("\n")[0]
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"[\x00-\x1f]", "", text)
+    if not text:
+        return None
+    return text[:limit]
+
+
+def title_from_info(info_path):
+    """info.json 에서 아이템 이름으로 쓸 title 을 뽑는다(작성자 표시명 우선)."""
+    data = _read_info_json(info_path)
+    if not isinstance(data, dict):
+        return None
+    for field in _TITLE_SOURCE_FIELDS:
+        value = data.get(field)
+        if isinstance(value, dict):
+            for key in _TITLE_NAME_KEYS:
+                text = _clean_title(value.get(key))
+                if text:
+                    return text
+        else:
+            text = _clean_title(value)
+            if text:
+                return text
+    for key in _TITLE_TEXT_KEYS:
+        text = _clean_title(data.get(key))
+        if text:
+            return text
+    return None
+
+
+def item_title_from_directory(directory, limit=12):
+    """수집된 `.metadata` JSON 들에서 아이템 이름 후보를 찾는다(루트 info.json 우선, 이후 최신순)."""
+    if not directory or not os.path.isdir(directory):
+        return None
+    meta_root = os.path.join(directory, METADATA_DIRNAME)
+    candidates = []
+    root_info = os.path.join(meta_root, "info.json")
+    if os.path.isfile(root_info):
+        candidates.append(root_info)
+    found = []
+    if os.path.isdir(meta_root):
+        for root, _dirs, files in os.walk(meta_root):
+            for name in files:
+                lowered = name.lower()
+                if not lowered.endswith(".json") or lowered.endswith(".json.tmp"):
+                    continue
+                path = os.path.join(root, name)
+                try:
+                    found.append((os.path.getmtime(path), path))
+                except OSError:
+                    continue
+    found.sort(reverse=True)
+    for _mtime, path in found[: max(1, int(limit))]:
+        if path not in candidates:
+            candidates.append(path)
+    for path in candidates:
+        title = title_from_info(path)
+        if title:
+            return title
+    return None
+
+
 def list_media_events(directory: str, cluster_minutes: float = 5.0) -> list[datetime]:
     """디렉터리(재귀)의 미디어 파일에서 업로드 시각을 수집한다.
 

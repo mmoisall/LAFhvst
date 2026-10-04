@@ -133,6 +133,14 @@
       if (itemYaml) {
         itemYaml.checked = settings.itemMetadataYaml === true;
       }
+      var titleAsName = document.getElementById("itemTitleAsNameToggle");
+      if (titleAsName) {
+        titleAsName.checked = settings.itemTitleAsName !== false;
+      }
+      var nameOnCollect = document.getElementById("itemNameUpdateOnCollectToggle");
+      if (nameOnCollect) {
+        nameOnCollect.checked = settings.itemNameUpdateOnCollect !== false;
+      }
       var metaYaml = document.getElementById("metaYamlToggle");
       if (metaYaml) {
         metaYaml.checked = settings.itemMetadataYaml === true;
@@ -180,6 +188,10 @@
       itemLimitRate: (document.getElementById("itemLimitRateInput") || {}).value || "",
       itemMetadataYaml: document.getElementById("itemMetadataYamlToggle")
         ? document.getElementById("itemMetadataYamlToggle").checked : false,
+      itemTitleAsName: document.getElementById("itemTitleAsNameToggle")
+        ? document.getElementById("itemTitleAsNameToggle").checked : true,
+      itemNameUpdateOnCollect: document.getElementById("itemNameUpdateOnCollectToggle")
+        ? document.getElementById("itemNameUpdateOnCollectToggle").checked : true,
       kdeBackfillOnFirstRun: document.getElementById("kdeBackfillToggle")
         ? document.getElementById("kdeBackfillToggle").checked : true,
       kdeClusterMinutes: document.getElementById("kdeClusterInput")

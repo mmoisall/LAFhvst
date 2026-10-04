@@ -575,6 +575,9 @@ def item_gdl_defaults() -> dict:
     if stored.get("itemDateBasis"):
         result["date_basis"] = str(stored.get("itemDateBasis"))
     result["metadata_yaml"] = stored.get("itemMetadataYaml", False) is True
+    # URL/메타데이터의 title 을 아이템 이름으로 사용(전역 디폴트 ON)
+    result["title_as_name"] = stored.get("itemTitleAsName", True) is not False
+    result["name_update_on_collect"] = stored.get("itemNameUpdateOnCollect", True) is not False
     return result
 
 
@@ -998,6 +1001,11 @@ def _move_real_directory(old_dir, new_dir):
         return {"ok": True, "moved": True, "method": "move", "from": old_dir, "to": new_dir}
     except Exception as exc:
         return {"ok": False, "error": str(exc), "from": old_dir, "to": new_dir}
+
+
+def move_real_directory(old_dir, new_dir):
+    """아이템 실제 폴더 이동(공개 별칭). rename 우선, 실패 시 복사 후 삭제."""
+    return _move_real_directory(old_dir, new_dir)
 
 
 def update_folder(session, folder_id, payload: dict) -> dict | None:

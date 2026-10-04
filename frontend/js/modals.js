@@ -319,6 +319,39 @@
     return { value: raw, explicit: true };
   }
 
+  function setupBoolConfigSelect(select, data, field, effectiveValue, globalValue) {
+    if (!select) {
+      return;
+    }
+    removeDynamicOption(select, UNCHANGED_VALUE);
+    var label = function (value) { return value === true ? "사용" : "사용 안 함"; };
+    setDynamicOption(select, INHERIT_VALUE, "상속 (현재: " + label(effectiveValue === true) + ")");
+    setDynamicOption(select, GLOBAL_VALUE, "전역 설정 (" + label(globalValue === true) + ")");
+    if (!data || !data.id) {
+      select.value = INHERIT_VALUE;
+      return;
+    }
+    var own = (data.config || {})[field];
+    select.value = own === undefined || own === null
+      ? INHERIT_VALUE
+      : (own === true ? "1" : "0");
+  }
+
+  function readBoolConfigSelect(id, globalValue) {
+    var el = byId(id);
+    var raw = el ? el.value : INHERIT_VALUE;
+    if (raw === UNCHANGED_VALUE) {
+      return null;
+    }
+    if (raw === INHERIT_VALUE) {
+      return { set: false, value: globalValue === true };
+    }
+    if (raw === GLOBAL_VALUE) {
+      return { set: true, value: globalValue === true };
+    }
+    return { set: true, value: raw === "1" };
+  }
+
   function setInheritPlaceholder(id, effectiveValue, suffix) {
     var el = byId(id);
     if (!el) {
@@ -582,6 +615,35 @@
       setDynamicOption(yamlEl, GLOBAL_VALUE, "전역 설정 (" + flag(globalYaml) + ")");
       yamlEl.value = ownHas ? (config.metadata_yaml === true ? "1" : "0") : INHERIT_VALUE;
     }
+
+    // URL title 을 이름으로 / 수집 시 이름 갱신 (기본 ON)
+    var globalTitle = settings.itemTitleAsName !== false;
+    var effectiveTitle = effective.title_as_name;
+    if (effectiveTitle === undefined || effectiveTitle === null) {
+      effectiveTitle = globalTitle;
+    }
+    setupBoolConfigSelect(
+      byId("entityTitleAsName"), data, "title_as_name", effectiveTitle, globalTitle
+    );
+    var globalUpdate = settings.itemNameUpdateOnCollect !== false;
+    var effectiveUpdate = effective.name_update_on_collect;
+    if (effectiveUpdate === undefined || effectiveUpdate === null) {
+      effectiveUpdate = globalUpdate;
+    }
+    setupBoolConfigSelect(
+      byId("entityNameUpdateOnCollect"), data, "name_update_on_collect",
+      effectiveUpdate, globalUpdate
+    );
+
+    var historyEl = byId("entityNameHistory");
+    if (historyEl) {
+      var history = (config.__name_history || []).slice(-3);
+      historyEl.textContent = history.length
+        ? "이름 변경 이력: " + history.map(function (entry) {
+            return (entry.from || "(없음)") + " → " + entry.to;
+          }).join(" · ")
+        : "";
+    }
   }
 
   function applyGdlConfig(config) {
@@ -625,6 +687,25 @@
         config.metadata_yaml = (window.AppSettings && window.AppSettings.itemMetadataYaml) === true;
       }
       // INHERIT_VALUE → 키 삭제(상속)
+    }
+    var settings = window.AppSettings || {};
+    var titleChoice = readBoolConfigSelect("entityTitleAsName", settings.itemTitleAsName !== false);
+    if (titleChoice) {
+      if (titleChoice.set) {
+        config.title_as_name = titleChoice.value === true;
+      } else {
+        delete config.title_as_name;
+      }
+    }
+    var updateChoice = readBoolConfigSelect(
+      "entityNameUpdateOnCollect", settings.itemNameUpdateOnCollect !== false
+    );
+    if (updateChoice) {
+      if (updateChoice.set) {
+        config.name_update_on_collect = updateChoice.value === true;
+      } else {
+        delete config.name_update_on_collect;
+      }
     }
     return config;
   }

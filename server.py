@@ -115,6 +115,8 @@ DEFAULT_SETTINGS = {
     "itemLimitRate": "",
     "itemDateBasis": "filter",
     "itemMetadataYaml": False,
+    "itemTitleAsName": True,
+    "itemNameUpdateOnCollect": True,
     "recommendRangeDays": 30,
     "recommendIncludeSensitive": False,
     "recommendMinEngagement": 0,
@@ -1347,10 +1349,97 @@ def _index_source_posts(source_id: int) -> dict | None:
     """소스 하나의 게시물 인덱스를 (재)구축한다."""
     session = _session()
     try:
-        source = models.get_source(session, source_id)
+        source = session.get(models.Source, source_id)
         if source is None:
             return None
         return post_index.refresh_source(session, models.source_to_dict(session, source))
+    finally:
+        session.close()
+
+
+def _apply_collected_title(source_id: int) -> dict | None:
+    """수집된 메타데이터의 title 을 아이템 이름으로 반영한다.
+
+    - `title_as_name`: 이름이 아직 title 로 설정된 적 없으면(최초 수집) 적용
+    - `name_update_on_collect`: 이후 수집에서도 title 이 바뀌면 이름 갱신
+    - 이름이 바뀌면 실제 폴더도 함께 이동하고, 변경 이력을 `config.__name_history` 에 남긴다.
+    """
+    session = _session()
+    try:
+        source = session.get(models.Source, source_id)
+        if source is None:
+            return None
+        info = models.source_to_dict(session, source)
+        effective = info.get("effective_config") or {}
+        if effective.get("title_as_name") is False:
+            return None
+        directory = info.get("download_directory")
+        title = utils.item_title_from_directory(directory)
+        if not title:
+            return None
+
+        config = dict(info.get("config") or {})
+        current = (info.get("name") or "").strip()
+        first_time = not config.get("__title")
+
+        def _remember(value):
+            if config.get("__title") != value:
+                config["__title"] = value
+                models.update_source(session, source_id, {"config": config})
+
+        if not (first_time or effective.get("name_update_on_collect") is not False):
+            _remember(title)
+            return None
+        if title == current:
+            _remember(title)
+            return None
+
+        new_name = title[:80]
+        context = models.source_context(session, source)
+        new_dir = utils.build_download_directory(
+            context["save_path"],
+            {"site": source.site, "key": source.key, "name": new_name, "url": source.url},
+        )
+        move = {"ok": True, "moved": False}
+        if directory and new_dir and os.path.normpath(directory) != os.path.normpath(new_dir):
+            move = models.move_real_directory(directory, new_dir)
+        if not move.get("ok"):
+            error_logger.log(
+                "WARN",
+                "title",
+                "이름 갱신 취소(폴더 이동 실패): %s → %s · %s"
+                % (current or "(없음)", new_name, move.get("error")),
+                source_id=source_id,
+                scope="source",
+            )
+            return None
+
+        history = list(config.get("__name_history") or [])
+        history.append(
+            {
+                "at": datetime.now().isoformat(timespec="seconds"),
+                "from": current,
+                "to": new_name,
+                "moved": bool(move.get("moved")),
+            }
+        )
+        config["__name_history"] = history[-20:]
+        config["__title"] = title
+        models.update_source(session, source_id, {"name": new_name, "config": config})
+        error_logger.log(
+            "INFO",
+            "title",
+            "이름 갱신: %s → %s%s"
+            % (current or "(없음)", new_name, " (폴더 이동)" if move.get("moved") else ""),
+            source_id=source_id,
+            scope="source",
+        )
+        return {
+            "source_id": source_id,
+            "from": current,
+            "to": new_name,
+            "moved": bool(move.get("moved")),
+        }
     finally:
         session.close()
 
@@ -2068,6 +2157,16 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
             await asyncio.to_thread(_db_mark_success, source_id, mtime)
             learned =             await asyncio.to_thread(_record_learning, source_id, found, mtime)
             await asyncio.to_thread(_maybe_initial_backfill, source_id)
+            try:
+                await asyncio.to_thread(_apply_collected_title, source_id)
+            except Exception as exc:  # 이름 갱신 실패가 수집을 막지 않도록
+                error_logger.log(
+                    "WARN",
+                    "title",
+                    "이름 갱신 실패: " + str(exc),
+                    source_id=source_id,
+                    scope="source",
+                )
             if SETTINGS.get("recommendAutoIndex"):
                 try:
                     await asyncio.to_thread(_index_source_posts, source_id)

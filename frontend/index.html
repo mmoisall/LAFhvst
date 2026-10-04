@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>LAFhvst</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="css/style.css?v=50">
+  <link rel="stylesheet" href="css/style.css?v=51">
 </head>
 <body>
   <main class="app">
@@ -503,6 +503,14 @@
               <span class="label-help">YAML 메타데이터 추가 생성<span class="help-icon" role="button" tabindex="0" data-help="JSON(info.json)은 항상 생성됩니다. 이 옵션을 켜면 .metadata 폴더에 사람이 읽기 좋은 YAML(.yaml)도 함께 생성합니다.">?</span></span>
               <input type="checkbox" id="itemMetadataYamlToggle">
             </label>
+            <label class="setting-row">
+              <span class="label-help">URL title 을 아이템 이름으로<span class="help-icon" role="button" tabindex="0" data-help="수집된 메타데이터의 title(작성자 표시명 등)을 아이템 이름으로 사용합니다. 이름이 바뀌면 실제 폴더도 함께 이동하고 변경 이력을 config.__name_history 에 남깁니다.">?</span></span>
+              <input type="checkbox" id="itemTitleAsNameToggle">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">수집 시 이름 갱신<span class="help-icon" role="button" tabindex="0" data-help="켜면 수집할 때마다 title 을 다시 확인해 이름이 바뀌었으면 갱신합니다. 끄면 최초 1회만 적용됩니다.">?</span></span>
+              <input type="checkbox" id="itemNameUpdateOnCollectToggle">
+            </label>
           </div>
         </section>
 
@@ -698,6 +706,27 @@
             <option value="0">사용 안 함</option>
           </select>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="label-help" for="entityTitleAsName">URL title 을 이름으로<span class="help-icon" role="button" tabindex="0" data-help="수집된 메타데이터의 title(작성자 표시명 등)을 이 아이템의 이름으로 씁니다. 이름이 바뀌면 실제 폴더도 함께 이동합니다.">?</span></label>
+            <select id="entityTitleAsName">
+              <option value="__inherit__">상속 (상위/전역 따름)</option>
+              <option value="__global__">전역 설정</option>
+              <option value="1">사용</option>
+              <option value="0">사용 안 함</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="label-help" for="entityNameUpdateOnCollect">수집 시 이름 갱신<span class="help-icon" role="button" tabindex="0" data-help="켜면 수집할 때마다 title 을 다시 확인해 바뀌었으면 이름을 갱신하고, 변경 이력을 config.__name_history 에 남깁니다. 끄면 최초 1회만 적용.">?</span></label>
+            <select id="entityNameUpdateOnCollect">
+              <option value="__inherit__">상속 (상위/전역 따름)</option>
+              <option value="__global__">전역 설정</option>
+              <option value="1">사용</option>
+              <option value="0">사용 안 함</option>
+            </select>
+          </div>
+        </div>
+        <p id="entityNameHistory" class="field-help"></p>
         <div class="alt-actions">
           <button id="entityMetaScanBtn" class="btn btn-sm" type="button">메타 미리보기</button>
           <button id="entityMetaMigrateBtn" class="btn btn-sm primary" type="button">메타데이터 정리</button>
@@ -938,20 +967,20 @@
 
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script src="js/vendor/Sortable.min.js?v=50"></script>
-  <script src="js/api.js?v=50"></script>
-  <script src="js/sites.js?v=50"></script>
-  <script src="js/help.js?v=50"></script>
-  <script src="js/urlsync.js?v=50"></script>
-  <script src="js/nav.js?v=50"></script>
-  <script src="js/modals.js?v=50"></script>
-  <script src="js/db.js?v=50"></script>
-  <script src="js/profiles.js?v=50"></script>
-  <script src="js/rules.js?v=50"></script>
-  <script src="js/watcher.js?v=50"></script>
-  <script src="js/logs.js?v=50"></script>
-  <script src="js/home.js?v=50"></script>
-  <script src="js/update.js?v=50"></script>
-  <script src="js/app.js?v=50"></script>
+  <script src="js/vendor/Sortable.min.js?v=51"></script>
+  <script src="js/api.js?v=51"></script>
+  <script src="js/sites.js?v=51"></script>
+  <script src="js/help.js?v=51"></script>
+  <script src="js/urlsync.js?v=51"></script>
+  <script src="js/nav.js?v=51"></script>
+  <script src="js/modals.js?v=51"></script>
+  <script src="js/db.js?v=51"></script>
+  <script src="js/profiles.js?v=51"></script>
+  <script src="js/rules.js?v=51"></script>
+  <script src="js/watcher.js?v=51"></script>
+  <script src="js/logs.js?v=51"></script>
+  <script src="js/home.js?v=51"></script>
+  <script src="js/update.js?v=51"></script>
+  <script src="js/app.js?v=51"></script>
 </body>
 </html>
