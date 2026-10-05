@@ -678,6 +678,10 @@ body.home-view .app {
 
 body.db-view .app {
   padding-bottom: 0;
+  /* PC 브라우저에서도 DB 는 좌우 끝까지 넓게 사용한다 */
+  max-width: none;
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 @media (max-width: 900px) {
