@@ -90,6 +90,9 @@ def build_launch_options(
         "user_data_dir": context_dir,
         "headless": bool(headless),
         "ignore_default_args": ["--enable-automation"],
+        # Playwright 기본값은 샌드박스 비활성(=--no-sandbox)이라 Chrome 이 경고 배너를 띄운다.
+        # 실제 Chrome 과 동일하게 샌드박스를 켜고, 실패하면 launch 시 비활성으로 재시도한다.
+        "chromium_sandbox": True,
         "args": [
             "--disable-blink-features=AutomationControlled",
             "--no-first-run",
@@ -172,6 +175,34 @@ def cleanup_previous_browsers() -> int:
     return count
 
 
+async def _maximize_window(context) -> bool:
+    """창을 최대화한다.
+
+    프로파일(Preferences)에 저장된 창 크기 때문에 로그인 창이 이상한 크기로 뜨는 문제를 막기 위해
+    실행 직후 CDP 로 명시적으로 최대화한다. 실패해도 조용히 넘어간다.
+    """
+    try:
+        page = context.pages[0] if context.pages else await context.new_page()
+        session = await context.new_cdp_session(page)
+        try:
+            target = await session.send("Browser.getWindowForTarget")
+            window_id = (target or {}).get("windowId")
+            if window_id is None:
+                return False
+            await session.send(
+                "Browser.setWindowBounds",
+                {"windowId": window_id, "bounds": {"windowState": "maximized"}},
+            )
+            return True
+        finally:
+            try:
+                await session.detach()
+            except Exception:
+                pass
+    except Exception:
+        return False
+
+
 async def _try_launch_candidates(
     playwright, candidates, context_dir, headless, proxy_url, stealth
 ):
@@ -180,14 +211,25 @@ async def _try_launch_candidates(
         options = build_launch_options(context_dir, headless, proxy_url, channel)
         try:
             context = await playwright.chromium.launch_persistent_context(**options)
-        except Exception as exc:  # 채널 미설치/실패 → 다음 후보
+        except Exception as exc:  # 샌드박스 실패 → 샌드박스만 끄고 같은 채널 재시도
             last_error = exc
-            continue
+            if options.get("chromium_sandbox"):
+                fallback = dict(options)
+                fallback["chromium_sandbox"] = False
+                try:
+                    context = await playwright.chromium.launch_persistent_context(**fallback)
+                except Exception as exc2:
+                    last_error = exc2
+                    continue
+            else:
+                continue
         if stealth:
             try:
                 await context.add_init_script(_STEALTH_INIT_SCRIPT)
             except Exception:
                 pass
+        if not headless:
+            await _maximize_window(context)
         return context, None
     return None, last_error
 
