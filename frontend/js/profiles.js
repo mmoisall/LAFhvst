@@ -85,6 +85,23 @@
     return secs + "초";
   }
 
+  // 필수 쿠키 누락(예: pixiv refresh_token) → 재로그인 필요 배지
+  function cookieBadge(profile) {
+    var status = profile.cookie_status;
+    if (!status || !status.required || !status.required.length || status.ok) {
+      return "";
+    }
+    var missing = (status.missing && status.missing.length)
+      ? status.missing.join(", ")
+      : "쿠키 파일 없음";
+    var tip = "재로그인 필요 · 누락: " + missing;
+    if (status.updated_at) {
+      tip += " · 마지막 갱신: " + String(status.updated_at).replace("T", " ").slice(0, 16);
+    }
+    tip += " · 프로파일을 '브라우저 열기 (로그인)'로 다시 로그인하세요.";
+    return '<span class="cookie-badge" title="' + escapeHtml(tip) + '">⚠ 재로그인</span>';
+  }
+
   function statusClass(status) {
     if (status === "차단") {
       return "profile-status-blocked";
@@ -159,6 +176,7 @@
         '<h3>' + escapeHtml(profile.name || "(이름 없음)") + "</h3>" +
         '<span class="status-badge ' + statusClass(profile.status) + '">' +
           escapeHtml(profile.status || "정상") + "</span>" +
+        cookieBadge(profile) +
       "</header>" +
       '<p class="muted profile-meta">' + escapeHtml(profile.site || "사이트 미지정") + proxy + "</p>" +
       '<div class="capacity-badges">' +
@@ -249,6 +267,7 @@
       '<span class="muted compact-meta">' + escapeHtml(profile.site || "-") + "</span>" +
       '<span class="status-badge ' + statusClass(profile.status) + '">' +
         escapeHtml(profile.status || "정상") + "</span>" +
+      cookieBadge(profile) +
       '<span class="muted compact-meta">한도 ' + escapeHtml(profile.learned_capacity) +
         " · 사용 " + escapeHtml(profile.recent_usage_count) + " (" + percent + "%)</span>" +
       '<span class="cooldown-line ' + (profile.in_cooldown ? "cooling" : "ready") + '">' +

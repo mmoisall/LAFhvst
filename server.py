@@ -1582,11 +1582,48 @@ def source_thumbnail(source_id: int, request: Request, full: int = 0) -> FileRes
 # ---------------------------------------------------------------------------
 
 
+def _profile_cookie_info(profile: dict) -> dict:
+    """프로파일 쿠키 파일 상태(필수 쿠키 누락 여부 포함)."""
+    site = str(profile.get("site") or "").strip().lower()
+    path = browser_manager.cookie_file_path(profile.get("context_dir"), profile.get("id"))
+    exists = bool(path) and os.path.isfile(path)
+    required = list(browser_manager.REQUIRED_COOKIES.get(site, ()))
+    missing = (
+        browser_manager.missing_required_cookies(site, path) if exists else list(required)
+    )
+    updated = None
+    if exists:
+        try:
+            updated = datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds")
+        except OSError:
+            updated = None
+    return {
+        "path": path,
+        "exists": exists,
+        "required": required,
+        "missing": missing,
+        "ok": bool(exists) and not missing,
+        "updated_at": updated,
+    }
+
+
+def _with_cookie_info(payload):
+    """프로파일 dict(또는 목록)에 cookie_status 를 붙인다."""
+    if isinstance(payload, list):
+        for item in payload:
+            if isinstance(item, dict):
+                item["cookie_status"] = _profile_cookie_info(item)
+        return payload
+    if isinstance(payload, dict):
+        payload["cookie_status"] = _profile_cookie_info(payload)
+    return payload
+
+
 @app.get("/api/profiles")
 def list_profiles() -> list[dict]:
     session = _session()
     try:
-        return models.list_profiles(session)
+        return _with_cookie_info(models.list_profiles(session))
     finally:
         session.close()
 
@@ -1603,7 +1640,7 @@ def get_profile(profile_id: int) -> dict:
         profile = models.get_profile(session, profile_id)
         if profile is None:
             raise HTTPException(status_code=404, detail="profile not found")
-        return profile
+        return _with_cookie_info(profile)
     finally:
         session.close()
 
