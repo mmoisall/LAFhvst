@@ -225,6 +225,38 @@ def cookie_file_path(context_dir: str | None, profile_id=None) -> str:
     return os.path.join(base, COOKIE_FILENAME)
 
 
+# 사이트별 필수 쿠키(없으면 인증 실패). pixiv 는 refresh_token 이 있어야 토큰을 갱신한다.
+REQUIRED_COOKIES = {
+    "pixiv": ("refresh_token",),
+}
+
+
+def has_cookie(cookie_path: str, name: str) -> bool:
+    """Netscape cookies.txt 에 해당 이름의 쿠키가 있는지 확인한다."""
+    if not cookie_path or not os.path.isfile(cookie_path):
+        return False
+    try:
+        with open(cookie_path, "r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                text = line.strip()
+                if not text or text.startswith("#"):
+                    continue
+                parts = text.split("\t")
+                if len(parts) >= 7 and parts[5].strip() == name:
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def missing_required_cookies(site, cookie_path) -> list[str]:
+    """사이트에 필요한데 쿠키 파일에 없는 쿠키 이름 목록."""
+    names = REQUIRED_COOKIES.get(str(site or "").strip().lower())
+    if not names:
+        return []
+    return [name for name in names if not has_cookie(cookie_path, name)]
+
+
 def to_netscape_cookies(cookies) -> str:
     """Playwright context.cookies() 결과를 Netscape HTTP Cookie File 텍스트로 변환."""
     lines = [

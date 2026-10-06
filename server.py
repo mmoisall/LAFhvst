@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -2102,6 +2103,47 @@ def _start_collection(source_ids, overrides=None) -> dict:
     }
 
 
+_cookie_warned_at: dict[int, float] = {}
+_COOKIE_WARN_INTERVAL = 1800.0
+
+
+def _warn_missing_profile_cookies(source, profile_id, source_id) -> None:
+    """사이트 필수 쿠키(예: pixiv refresh_token) 누락을 수집 전에 안내한다.
+
+    같은 프로파일에는 30분에 한 번만 기록한다(소스가 많을 때 로그 폭주 방지).
+    """
+    if not profile_id:
+        return
+    site = str(source.get("site") or "").strip().lower()
+    if site not in browser_manager.REQUIRED_COOKIES:
+        return
+    now = time.monotonic()
+    last = _cookie_warned_at.get(int(profile_id), 0.0)
+    if now - last < _COOKIE_WARN_INTERVAL:
+        return
+    session = _session()
+    try:
+        profile = models.get_profile(session, int(profile_id))
+    finally:
+        session.close()
+    if not profile:
+        return
+    path = browser_manager.cookie_file_path(profile.get("context_dir"), profile_id)
+    missing = browser_manager.missing_required_cookies(site, path)
+    if not missing:
+        return
+    _cookie_warned_at[int(profile_id)] = now
+    error_logger.log(
+        "WARN",
+        "auth",
+        "%s 프로파일(%s) 쿠키에 %s 이(가) 없습니다. 프로파일을 '실행'해 해당 사이트 계정으로 다시 로그인하세요."
+        % (site, profile.get("name") or profile_id, ", ".join(missing)),
+        source_id=source_id,
+        profile_id=int(profile_id),
+        scope="source",
+    )
+
+
 async def _collect_source(source_id: int, overrides: dict | None = None) -> dict:
     if source_id in _running:
         return {"id": source_id, "status": "running"}
@@ -2147,6 +2189,10 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
         await asyncio.to_thread(utils.ensure_dir, directory)
         group_id = source.get("effective_profile_group_id")
         profile_id = source.get("effective_profile_id")
+        try:
+            await asyncio.to_thread(_warn_missing_profile_cookies, source, profile_id, source_id)
+        except Exception:  # 진단 실패가 수집을 막지 않도록
+            pass
 
         start_logged = {"done": False}
 

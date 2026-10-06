@@ -25,6 +25,11 @@ RESOLUTION_GUIDES = {
     "rate_limit": "프로파일 한도 초과(Code 88). 해당 프로파일을 쿨다운/전환하거나 사용량을 줄이세요.",
     "short_rate": "요청 과다(429). 잠시 대기 후 재시도하거나 페이싱(--sleep-request)을 늘리세요.",
     "auth": "인증 실패입니다. 프로파일 브라우저로 다시 로그인한 뒤 쿠키를 갱신하세요.",
+    "pixiv_token": (
+        "pixiv 는 refresh_token 쿠키가 필요합니다. 프로파일 탭에서 해당 pixiv 프로파일을 '실행'해 "
+        "pixiv 계정(이메일/비밀번호)으로 로그인하세요. Google 계정 로그인은 refresh_token 을 만들지 않습니다. "
+        "로그인하면 쿠키 스냅샷이 자동 갱신되고(창을 닫을 때 확정) 다시 수집하면 됩니다."
+    ),
     "not_found": "대상이 없습니다(404). 소스 URL/키가 유효한지 확인하세요.",
     "browser": "브라우저 실행 실패입니다. Settings에서 브라우저 채널/스텔스를 점검하고 잠금을 정리하세요.",
     "network": "네트워크/타임아웃 오류입니다. 연결과 프록시 설정을 확인하세요.",
@@ -67,6 +72,8 @@ def summarize_errors(errors, limit=3) -> str:
 
 def guide_for(category=None, error_code=None, message=None) -> str | None:
     text = (str(message or "") + " " + str(error_code or "")).lower()
+    if "refresh token" in text or "refresh_token" in text or "authenticationerror" in text:
+        return RESOLUTION_GUIDES["pixiv_token"]
     if category == "auth" or "auth" in text or "로그인" in text:
         return RESOLUTION_GUIDES["auth"]
     if category == "rate_limit" or "code 88" in text or "rate limit" in text:
