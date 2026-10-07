@@ -24,7 +24,9 @@ _SNAPSHOT_INTERVAL = 3.0
 BROWSER_CHANNELS = ("chrome", "msedge", "chromium")
 _LOCK_FILES = ("lockfile", "SingletonLock", "SingletonCookie", "SingletonSocket")
 
-# 자동화 탐지 회피용 최소 스텔스 스크립트 (webdriver/languages/window.chrome)
+# 자동화 탐지 회피용 최소 스텔스 스크립트 (webdriver/languages/window.chrome/plugins/permissions).
+# --disable-blink-features=AutomationControlled 플래그 대신 이 스크립트로 대체한다
+# (해당 플래그는 Chrome 이 "지원되지 않는 명령줄 플래그" 경고 배너를 띄운다).
 _STEALTH_INIT_SCRIPT = r"""
 (() => {
   try { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); } catch (e) {}
@@ -36,6 +38,33 @@ _STEALTH_INIT_SCRIPT = r"""
     Object.defineProperty(navigator, 'languages', {
       get: () => ['ko-KR', 'ko', 'en-US', 'en']
     });
+  } catch (e) {}
+  try {
+    if (!navigator.plugins || navigator.plugins.length === 0) {
+      var mk = function (name, filename, desc) {
+        return { name: name, filename: filename, description: desc, length: 1 };
+      };
+      var plugins = [
+        mk('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+        mk('Chrome PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+        mk('Chromium PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+      ];
+      Object.defineProperty(navigator, 'plugins', { get: () => plugins });
+      Object.defineProperty(navigator, 'mimeTypes', {
+        get: () => [{ type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' }]
+      });
+    }
+  } catch (e) {}
+  try {
+    var originalQuery = navigator.permissions && navigator.permissions.query;
+    if (originalQuery) {
+      navigator.permissions.query = function (params) {
+        if (params && params.name === 'notifications') {
+          return Promise.resolve({ state: Notification.permission, onchange: null });
+        }
+        return originalQuery.apply(navigator.permissions, arguments);
+      };
+    }
   } catch (e) {}
 })();
 """
@@ -94,7 +123,8 @@ def build_launch_options(
         # 실제 Chrome 과 동일하게 샌드박스를 켜고, 실패하면 launch 시 비활성으로 재시도한다.
         "chromium_sandbox": True,
         "args": [
-            "--disable-blink-features=AutomationControlled",
+            # --disable-blink-features=AutomationControlled 는 Chrome 이
+            # "지원되지 않는 명령줄 플래그" 배너를 띄우므로 쓰지 않는다(스텔스는 init script 로 처리).
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-infobars",
