@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import random
@@ -1006,6 +1007,77 @@ def _move_real_directory(old_dir, new_dir):
 def move_real_directory(old_dir, new_dir):
     """아이템 실제 폴더 이동(공개 별칭). rename 우선, 실패 시 복사 후 삭제."""
     return _move_real_directory(old_dir, new_dir)
+
+
+def _file_digest(path: str) -> str:
+    """파일 내용 해시(중복 판정용). 읽기 실패 시 빈 문자열."""
+    digest = hashlib.sha1()
+    try:
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return ""
+    return digest.hexdigest()
+
+
+def merge_directory(src, dst):
+    """``src`` 의 파일을 ``dst`` 로 병합한다(하위 경로 유지).
+    - 대상에 없는 파일은 이동
+    - 같은 경로에 내용이 같은 파일이 있으면 중복으로 보고 원본 삭제
+    - 같은 경로에 다른 내용이면 ``<name>.dup<N>`` 로 보존
+    - 비게 된 폴더는 정리
+    """
+    if not src or not dst:
+        return {"ok": True, "moved": 0, "skipped": 0, "renamed": 0, "errors": [], "removed": False}
+    src_norm = os.path.normpath(src)
+    dst_norm = os.path.normpath(dst)
+    if src_norm == dst_norm or not os.path.isdir(src_norm):
+        return {"ok": True, "moved": 0, "skipped": 0, "renamed": 0, "errors": [], "removed": False}
+    utils.ensure_dir(dst_norm)
+    moved = skipped = renamed = 0
+    errors: list[str] = []
+    for root, _dirs, files in os.walk(src_norm):
+        rel = os.path.relpath(root, src_norm)
+        target_root = dst_norm if rel == "." else os.path.join(dst_norm, rel)
+        for name in files:
+            source_path = os.path.join(root, name)
+            target_path = os.path.join(target_root, name)
+            try:
+                if not os.path.exists(target_path):
+                    utils.ensure_dir(target_root)
+                    os.replace(source_path, target_path)
+                    moved += 1
+                    continue
+                if os.path.getsize(source_path) == os.path.getsize(target_path):
+                    # 크기가 같아도 내용이 다를 수 있으므로 해시로 확인(같을 때만 중복 처리)
+                    if _file_digest(source_path) == _file_digest(target_path):
+                        os.remove(source_path)
+                        skipped += 1
+                        continue
+                candidate = target_path + ".dup"
+                index = 1
+                while os.path.exists(candidate):
+                    candidate = "%s.dup%d" % (target_path, index)
+                    index += 1
+                os.replace(source_path, candidate)
+                renamed += 1
+            except OSError as exc:
+                errors.append("%s: %s" % (source_path, exc))
+    for root, _dirs, _files in os.walk(src_norm, topdown=False):
+        try:
+            if not os.listdir(root):
+                os.rmdir(root)
+        except OSError:
+            pass
+    return {
+        "ok": not errors,
+        "moved": moved,
+        "skipped": skipped,
+        "renamed": renamed,
+        "errors": errors,
+        "removed": not os.path.isdir(src_norm),
+    }
 
 
 def update_folder(session, folder_id, payload: dict) -> dict | None:

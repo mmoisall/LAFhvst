@@ -1460,7 +1460,12 @@ def _apply_collected_title(source_id: int) -> dict | None:
             {"site": source.site, "key": source.key, "name": new_name, "url": source.url},
         )
         move = {"ok": True, "moved": False}
-        if directory and new_dir and os.path.normpath(directory) != os.path.normpath(new_dir):
+        target_existed = bool(new_dir) and os.path.exists(new_dir)
+        if target_existed:
+            # 같은 이름의 폴더가 이미 있음(예: 레거시 데이터가 작가명으로 저장된 경우)
+            # → 파일은 옮기지 않고 이름만 갱신해, 이후 수집이 기존 폴더로 들어가게 한다.
+            move = {"ok": True, "moved": False, "target_existed": True}
+        elif directory and new_dir and os.path.normpath(directory) != os.path.normpath(new_dir):
             move = models.move_real_directory(directory, new_dir)
         if not move.get("ok"):
             error_logger.log(
@@ -1472,6 +1477,26 @@ def _apply_collected_title(source_id: int) -> dict | None:
                 scope="source",
             )
             return None
+        if target_existed and directory and os.path.normpath(directory) != os.path.normpath(new_dir):
+            merge = models.merge_directory(directory, new_dir)
+            detail = "이동 %s · 중복정리 %s · 충돌보존 %s" % (
+                merge.get("moved"),
+                merge.get("skipped"),
+                merge.get("renamed"),
+            )
+            if merge.get("removed"):
+                detail += " · 남은 폴더 정리됨"
+            else:
+                detail += " · 남은 폴더: %s" % directory
+            error_logger.log(
+                "INFO",
+                "title",
+                "같은 이름의 폴더가 이미 있어 이름만 갱신했습니다(%s).\n기존 폴더: %s"
+                % (detail, new_dir),
+                source_id=source_id,
+                scope="source",
+            )
+            move["merge"] = merge
 
         history = list(config.get("__name_history") or [])
         alt_moves = _relocate_alt_paths(config, directory, new_dir)
@@ -1495,7 +1520,7 @@ def _apply_collected_title(source_id: int) -> dict | None:
             % (
                 current or "(없음)",
                 new_name,
-                " (폴더 이동)" if move.get("moved") else "",
+                " (폴더 이동)" if move.get("moved") else (" (이름만 · 폴더 유지)" if target_existed else ""),
                 (" (대체경로 %d개 이동)" % len(alt_moves)) if alt_moves else "",
             ),
             source_id=source_id,
