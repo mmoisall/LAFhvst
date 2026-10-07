@@ -26,9 +26,10 @@ RESOLUTION_GUIDES = {
     "short_rate": "요청 과다(429). 잠시 대기 후 재시도하거나 페이싱(--sleep-request)을 늘리세요.",
     "auth": "인증 실패입니다. 프로파일 브라우저로 다시 로그인한 뒤 쿠키를 갱신하세요.",
     "pixiv_token": (
-        "pixiv 는 refresh_token 쿠키가 필요합니다. 프로파일 탭에서 해당 pixiv 프로파일을 '실행'해 "
-        "pixiv 계정(이메일/비밀번호)으로 로그인하세요. Google 계정 로그인은 refresh_token 을 만들지 않습니다. "
-        "로그인하면 쿠키 스냅샷이 자동 갱신되고(창을 닫을 때 확정) 다시 수집하면 됩니다."
+        "pixiv 는 gallery-dl 의 `extractor.pixiv.refresh-token` 으로 로그인합니다(쿠키만으로는 불가). "
+        "전역 config(%APPDATA%\\gallery-dl\\config.json)의 값이 오래됐거나 플레이스홀더면 이 오류가 납니다. "
+        "`gallery-dl oauth:pixiv` 로 토큰을 재발급하거나, 그 값을 유효한 refresh token 으로 바꾸세요. "
+        "(앱은 data/gallery-dl.conf 를 함께 넘기며, 전역 config 가 먼저 로드된 뒤 앱 config 가 덮어씁니다.)"
     ),
     "not_found": "대상이 없습니다(404). 소스 URL/키가 유효한지 확인하세요.",
     "browser": "브라우저 실행 실패입니다. Settings에서 브라우저 채널/스텔스를 점검하고 잠금을 정리하세요.",

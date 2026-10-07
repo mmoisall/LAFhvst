@@ -255,6 +255,12 @@
         body: { url: url || null }
       });
     },
+    issuePixivToken: function (id) {
+      return request("/api/profiles/" + encodeId(id) + "/pixiv-token", {
+        method: "POST",
+        body: {}
+      });
+    },
     getLaunchingProfiles: function () {
       return request("/api/profiles/launching");
     },

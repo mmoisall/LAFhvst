@@ -85,21 +85,25 @@
     return secs + "초";
   }
 
-  // 필수 쿠키 누락(예: pixiv refresh_token) → 재로그인 필요 배지
+  // 인증 문제(쿠키 누락 / pixiv 토큰 무효) → 카드 배지
   function cookieBadge(profile) {
     var status = profile.cookie_status;
-    if (!status || !status.required || !status.required.length || status.ok) {
+    if (!status || !status.problem) {
       return "";
     }
-    var missing = (status.missing && status.missing.length)
-      ? status.missing.join(", ")
-      : "쿠키 파일 없음";
-    var tip = "재로그인 필요 · 누락: " + missing;
-    if (status.updated_at) {
-      tip += " · 마지막 갱신: " + String(status.updated_at).replace("T", " ").slice(0, 16);
+    var tip = status.problem;
+    var label = "⚠ 재로그인";
+    if (status.problem_kind === "token") {
+      label = "⚠ pixiv 토큰";
+      tip += "\npixiv 는 gallery-dl config 의 refresh-token 으로 로그인합니다." +
+        "\n`gallery-dl oauth:pixiv` 로 재발급하거나 값(전역 config)을 유효한 토큰으로 바꾸세요.";
+    } else {
+      if (status.updated_at) {
+        tip += "\n마지막 갱신: " + String(status.updated_at).replace("T", " ").slice(0, 16);
+      }
+      tip += "\n프로파일을 '브라우저 열기 (로그인)'로 다시 로그인하세요.";
     }
-    tip += " · 프로파일을 '브라우저 열기 (로그인)'로 다시 로그인하세요.";
-    return '<span class="cookie-badge" title="' + escapeHtml(tip) + '">⚠ 재로그인</span>';
+    return '<span class="cookie-badge" title="' + escapeHtml(tip) + '">' + label + "</span>";
   }
 
   function statusClass(status) {
@@ -204,6 +208,7 @@
       '<p class="muted profile-path" title="' + escapeHtml(context) + '">' + escapeHtml(context) + "</p>" +
       '<div class="card-actions">' +
         '<button class="btn btn-sm primary" type="button" data-action="launch">🖥 브라우저 열기 (로그인)</button>' +
+        (profile.site === "pixiv" ? '<button class="btn btn-sm" type="button" data-action="pixiv-token" title="pixiv refresh token 발급(브라우저 자동)">🔑 pixiv 토큰</button>' : "") +
         '<button class="btn btn-sm' + (profile.is_site_default ? " active-toggle" : "") + '" type="button" data-action="default" title="사이트 디폴트로 설정/해제">⭐</button>' +
         '<button class="btn btn-sm" type="button" data-action="edit" title="편집">⚙️</button>' +
         '<button class="btn btn-sm" type="button" data-action="reset" title="학습 초기화">♻️</button>' +
@@ -274,6 +279,7 @@
         escapeHtml(cooldown) + "</span>" +
       '<span class="row-actions">' +
         '<button class="btn btn-sm primary" type="button" data-action="launch" title="브라우저 열기">🖥</button>' +
+        (profile.site === "pixiv" ? '<button class="btn btn-sm" type="button" data-action="pixiv-token" title="pixiv 토큰 발급">🔑</button>' : "") +
         '<button class="btn btn-sm' + (profile.is_site_default ? " active-toggle" : "") + '" type="button" data-action="default" title="사이트 디폴트">⭐</button>' +
         '<button class="btn btn-sm" type="button" data-action="edit" title="편집">⚙️</button>' +
         '<button class="btn btn-sm" type="button" data-action="reset" title="초기화">♻️</button>' +
@@ -579,6 +585,27 @@
     });
   }
 
+  function issuePixivToken(profile) {
+    if (!window.confirm("[" + (profile.name || profile.id) + "]\n\n" +
+        "pixiv refresh token 을 발급합니다.\n" +
+        "프로파일 브라우저가 열리고, 로그인되어 있으면 자동으로 완료됩니다.\n" +
+        "(로그인 화면이 뜨면 로그인하세요. 로그인하면 자동으로 완료됩니다. 최대 10분)\n\n" +
+        "진행할까요?")) {
+      return;
+    }
+    showToast("pixiv 토큰 발급 중… (열린 창을 닫지 마세요)", "info");
+    window.API.issuePixivToken(profile.id).then(function (result) {
+      if (result && result.ok) {
+        showToast("pixiv 토큰 발급 완료" + (result.user ? " · " + result.user : ""), "success");
+      } else {
+        showToast((result && result.error) || "pixiv 토큰 발급 실패", "error");
+      }
+      refresh();
+    }).catch(function (error) {
+      showToast(error.message || "pixiv 토큰 발급 실패", "error");
+    });
+  }
+
   function launchProfile(profile) {
     showToast("[" + profile.name + "] 브라우저를 여는 중...", "info");
     window.API.launchProfile(profile.id).then(function (result) {
@@ -617,6 +644,8 @@
       }
       if (action === "launch") {
         launchProfile(profile);
+      } else if (action === "pixiv-token") {
+        issuePixivToken(profile);
       } else if (action === "default") {
         var makeDefault = !profile.is_site_default;
         window.API.setProfileDefault(id, makeDefault).then(function () {

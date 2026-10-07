@@ -49,6 +49,42 @@ def app_config_path() -> str:
     return os.path.join(utils.project_root(), "data", "gallery-dl.conf")
 
 
+def pixiv_token_state() -> dict:
+    """gallery-dl 이 실제로 로드하는 순서(전역 config → 앱 config)로 pixiv refresh-token 상태를 본다.
+
+    pixiv 추출기는 `extractor.pixiv.refresh-token` 을 쓰고, 값이 없거나 ``"cache"`` 면 캐시를 본다.
+    전역 config 가 항상 함께 로드되므로 오래된/플레이스홀더 값이 있으면 그것이 우선한다.
+    """
+    candidates = []
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        candidates.append((os.path.join(appdata, "gallery-dl", "config.json"), "global"))
+    candidates.append((app_config_path(), "app"))
+    value = None
+    source = None
+    for path, label in candidates:
+        try:
+            if not path or not os.path.isfile(path):
+                continue
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception:
+            continue
+        pixiv = ((data or {}).get("extractor") or {}).get("pixiv") or {}
+        if "refresh-token" in pixiv:
+            value = pixiv["refresh-token"]
+            source = label
+    if value is None:
+        return {"state": "missing", "source": None, "length": 0}
+    text = str(value).strip()
+    if text.lower() == "cache":
+        return {"state": "cache", "source": source, "length": 0}
+    # 실제 pixiv refresh token 은 100자 이상이며 공백/비ASCII 가 없다.
+    if len(text) < 24 or " " in text or not text.isascii():
+        return {"state": "placeholder", "source": source, "length": len(text)}
+    return {"state": "set", "source": source, "length": len(text)}
+
+
 _SECRET_CONFIG_KEYS = {
     "cookies", "auth_token", "refresh-token", "refresh_token",
     "api-key", "api_key", "api-secret", "api_secret",

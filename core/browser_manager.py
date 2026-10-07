@@ -297,10 +297,10 @@ def cookie_file_path(context_dir: str | None, profile_id=None) -> str:
     return os.path.join(base, COOKIE_FILENAME)
 
 
-# 사이트별 필수 쿠키(없으면 인증 실패). pixiv 는 refresh_token 이 있어야 토큰을 갱신한다.
-REQUIRED_COOKIES = {
-    "pixiv": ("refresh_token",),
-}
+# 사이트별 필수 쿠키(없으면 인증 실패).
+#   주의: pixiv 는 refresh_token *쿠키* 가 아니라 gallery-dl config 의 refresh-token 을 쓰므로
+#   여기에 넣지 않는다(gdl_executor.pixiv_token_state() 로 따로 점검).
+REQUIRED_COOKIES = {}
 
 
 def has_cookie(cookie_path: str, name: str) -> bool:

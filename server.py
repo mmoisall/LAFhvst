@@ -25,6 +25,7 @@ from core import (
     error_logger,
     favicons,
     gdl_executor,
+    pixiv_auth,
     kde,
     metadata,
     models,
@@ -136,6 +137,7 @@ SETTINGS = dict(DEFAULT_SETTINGS)
 
 _running: set[int] = set()
 _launching: set[int] = set()
+_pixiv_token_tasks: set[int] = set()
 _tasks: set = set()
 
 _collect_sem: asyncio.Semaphore | None = None
@@ -1583,7 +1585,7 @@ def source_thumbnail(source_id: int, request: Request, full: int = 0) -> FileRes
 
 
 def _profile_cookie_info(profile: dict) -> dict:
-    """프로파일 쿠키 파일 상태(필수 쿠키 누락 여부 포함)."""
+    """프로파일 인증 상태(쿠키 파일 + 사이트 토큰 설정)."""
     site = str(profile.get("site") or "").strip().lower()
     path = browser_manager.cookie_file_path(profile.get("context_dir"), profile.get("id"))
     exists = bool(path) and os.path.isfile(path)
@@ -1597,13 +1599,36 @@ def _profile_cookie_info(profile: dict) -> dict:
             updated = datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds")
         except OSError:
             updated = None
+
+    problem = None
+    problem_kind = None
+    token_state = None
+    if missing:
+        problem = "쿠키 누락: " + ", ".join(missing)
+        problem_kind = "cookie"
+    elif site == "pixiv":
+        # pixiv 는 쿠키가 아니라 gallery-dl config 의 refresh-token 으로 로그인한다.
+        token_state = gdl_executor.pixiv_token_state()
+        state = token_state.get("state")
+        if state == "missing":
+            problem = "gallery-dl config 에 pixiv refresh-token 이 없습니다."
+            problem_kind = "token"
+        elif state == "placeholder":
+            problem = (
+                "gallery-dl config(%s)의 pixiv refresh-token 이 무효해 보입니다"
+                "(%d자 플레이스홀더)." % (token_state.get("source"), token_state.get("length"))
+            )
+            problem_kind = "token"
     return {
         "path": path,
         "exists": exists,
         "required": required,
         "missing": missing,
-        "ok": bool(exists) and not missing,
+        "ok": problem is None,
         "updated_at": updated,
+        "problem": problem,
+        "problem_kind": problem_kind,
+        "pixiv_token": token_state,
     }
 
 
@@ -1631,6 +1656,40 @@ def list_profiles() -> list[dict]:
 @app.get("/api/profiles/launching")
 def launching_profiles() -> dict:
     return {"launching": sorted(_launching)}
+
+
+@app.post("/api/profiles/{profile_id}/pixiv-token")
+async def issue_pixiv_token(profile_id: int) -> dict:
+    """프로파일 브라우저로 pixiv refresh token 을 발급해 앱 config 에 저장한다."""
+    if profile_id in _pixiv_token_tasks:
+        return {"ok": True, "started": False, "already_running": True, "profile_id": profile_id}
+    _pixiv_token_tasks.add(profile_id)
+    try:
+        result = await pixiv_auth.issue_refresh_token(profile_id)
+    except Exception as exc:  # pragma: no cover - 사용자 환경 의존
+        error_logger.log(
+            "ERROR", "auth", "pixiv 토큰 발급 실패 · " + str(exc),
+            profile_id=profile_id, scope="profile",
+        )
+        return {"ok": False, "error": str(exc)}
+    finally:
+        _pixiv_token_tasks.discard(profile_id)
+    if result.get("ok"):
+        error_logger.log(
+            "INFO",
+            "auth",
+            "pixiv refresh token 발급 완료%s" % (
+                " (%s)" % result.get("user") if result.get("user") else ""
+            ),
+            profile_id=profile_id,
+            scope="profile",
+        )
+    else:
+        error_logger.log(
+            "WARN", "auth", "pixiv 토큰 발급 실패 · " + str(result.get("error")),
+            profile_id=profile_id, scope="profile",
+        )
+    return result
 
 
 @app.get("/api/profiles/{profile_id}")
@@ -2140,23 +2199,44 @@ def _start_collection(source_ids, overrides=None) -> dict:
     }
 
 
-_cookie_warned_at: dict[int, float] = {}
-_COOKIE_WARN_INTERVAL = 1800.0
+_auth_warned_at: dict[str, float] = {}
+_AUTH_WARN_INTERVAL = 1800.0
 
 
-def _warn_missing_profile_cookies(source, profile_id, source_id) -> None:
-    """사이트 필수 쿠키(예: pixiv refresh_token) 누락을 수집 전에 안내한다.
+def _warn_auth_setup(source, profile_id, source_id) -> None:
+    """수집 시작 전에 인증 준비 상태(프로파일 쿠키 / pixiv 토큰)를 점검해 안내한다.
 
-    같은 프로파일에는 30분에 한 번만 기록한다(소스가 많을 때 로그 폭주 방지).
+    같은 대상에는 30분에 한 번만 기록한다(소스가 많을 때 로그 폭주 방지).
     """
-    if not profile_id:
-        return
     site = str(source.get("site") or "").strip().lower()
-    if site not in browser_manager.REQUIRED_COOKIES:
-        return
     now = time.monotonic()
-    last = _cookie_warned_at.get(int(profile_id), 0.0)
-    if now - last < _COOKIE_WARN_INTERVAL:
+
+    if site == "pixiv":
+        state = gdl_executor.pixiv_token_state()
+        if state.get("state") not in ("missing", "placeholder"):
+            return
+        if now - _auth_warned_at.get("pixiv", 0.0) < _AUTH_WARN_INTERVAL:
+            return
+        _auth_warned_at["pixiv"] = now
+        error_logger.log(
+            "WARN",
+            "auth",
+            "pixiv gallery-dl refresh-token 이 %s 상태입니다(전역 config %s). "
+            "`gallery-dl oauth:pixiv` 로 재발급하거나 값를 유효한 토큰으로 바꾸세요."
+            % (
+                "없음" if state.get("state") == "missing" else "무효(플레이스홀더)",
+                state.get("source") or "-",
+            ),
+            source_id=source_id,
+            profile_id=profile_id,
+            scope="source",
+        )
+        return
+
+    if not profile_id or site not in browser_manager.REQUIRED_COOKIES:
+        return
+    key = "cookie:%s" % profile_id
+    if now - _auth_warned_at.get(key, 0.0) < _AUTH_WARN_INTERVAL:
         return
     session = _session()
     try:
@@ -2169,7 +2249,7 @@ def _warn_missing_profile_cookies(source, profile_id, source_id) -> None:
     missing = browser_manager.missing_required_cookies(site, path)
     if not missing:
         return
-    _cookie_warned_at[int(profile_id)] = now
+    _auth_warned_at[key] = now
     error_logger.log(
         "WARN",
         "auth",
@@ -2227,7 +2307,7 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
         group_id = source.get("effective_profile_group_id")
         profile_id = source.get("effective_profile_id")
         try:
-            await asyncio.to_thread(_warn_missing_profile_cookies, source, profile_id, source_id)
+            await asyncio.to_thread(_warn_auth_setup, source, profile_id, source_id)
         except Exception:  # 진단 실패가 수집을 막지 않도록
             pass
 
