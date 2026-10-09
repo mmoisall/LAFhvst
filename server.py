@@ -2736,9 +2736,8 @@ def recommendations_refresh(payload: RecommendRefreshPayload | None = None) -> d
             source = models.get_source(session, int(payload.source_id))
             if source is None:
                 raise HTTPException(status_code=404, detail="source not found")
-            result = post_index.refresh_source(
-                session, models.source_to_dict(session, source)
-            )
+            # get_source 는 이미 source_to_dict 결과(dict)를 준다
+            result = post_index.refresh_source(session, source)
         else:
             result = post_index.refresh_all(session)
     finally:
