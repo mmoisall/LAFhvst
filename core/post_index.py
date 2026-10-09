@@ -180,11 +180,18 @@ def parse_filename(name):
         return {"posted_at": posted, "author": rest.strip()}
     prefix = rest[: tail.start()].rstrip(" -")
     author, _, site = prefix.rpartition(" - ")
+    post = tail.group("post").strip()
+    # 구형 HVST 포맷은 `{제목}-{n}({post_id}_p{page})` 라 제목이 post 자리에 온다.
+    # 괄호 안이 `숫자`/`숫자_p숫자` 이고 post 에 숫자가 없으면 그 숫자가 실제 게시물 ID 다.
+    inner = tail.group("inner").strip()
+    legacy_id = re.fullmatch(r"(\d+)(?:_p\d+)?", inner)
+    if legacy_id and not re.search(r"\d", post):
+        post = legacy_id.group(1)
     return {
         "posted_at": posted,
         "author": author.strip(),
         "site": site.strip(),
-        "post_id": tail.group("post").strip(),
+        "post_id": post,
     }
 
 
@@ -353,15 +360,35 @@ def refresh_source(session, source, prune=True):
     source_id = source.get("id")
     directory = source.get("download_directory")
     posts = iter_source_posts(directory, source)
-    existing = {
-        (row.site, row.post_id): row
-        for row in session.execute(
-            select(PostIndex).where(PostIndex.source_id == source_id)
+
+    def _key(post):
+        site = post["site"]
+        post_id = post["post_id"]
+        if site == "unknown":
+            post_id = "%s:%s" % (source_id, post_id)
+        return site, post_id
+
+    keys = {_key(post) for post in posts}
+    # (site, post_id) 는 전역 UNIQUE 제약이라, 이 소스에 없는(=다른 소스가 가진) 행도 함께 찾아야
+    # INSERT 충돌이 나지 않는다. 자기 소스 행만 갱신/정리 대상으로 삼는다.
+    existing: dict = {}
+    if keys:
+        rows = (
+            session.execute(
+                select(PostIndex)
+                .where(PostIndex.site.in_({key[0] for key in keys}))
+                .where(PostIndex.post_id.in_({key[1] for key in keys}))
+            )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    }
-    created = updated = 0
+        for row in rows:
+            key = (row.site, row.post_id)
+            if key in keys and key not in existing:
+                existing[key] = row
+    owned = {key: row for key, row in existing.items() if row.source_id == source_id}
+
+    created = updated = skipped = 0
     seen = set()
     for post in posts:
         site = post["site"]
@@ -374,13 +401,18 @@ def refresh_source(session, source, prune=True):
         if row is None:
             row = PostIndex(source_id=source_id, site=site, post_id=post_id)
             session.add(row)
+            existing[key] = row
             created += 1
+        elif row.source_id != source_id:
+            # 같은 게시물을 이미 다른 소스가 색인했다 → 출처/media_rel 이 어긋나지 않게 그대로 둔다
+            skipped += 1
+            continue
         else:
             updated += 1
         _apply(row, post)
     removed = 0
     if prune:
-        for key, row in existing.items():
+        for key, row in owned.items():
             if key not in seen:
                 session.delete(row)
                 removed += 1
@@ -392,6 +424,7 @@ def refresh_source(session, source, prune=True):
         "found": len(posts),
         "created": created,
         "updated": updated,
+        "skipped": skipped,
         "removed": removed,
     }
 
