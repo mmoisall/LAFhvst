@@ -182,10 +182,11 @@ def parse_filename(name):
     author, _, site = prefix.rpartition(" - ")
     post = tail.group("post").strip()
     # 구형 HVST 포맷은 `{제목}-{n}({post_id}_p{page})` 라 제목이 post 자리에 온다.
-    # 괄호 안이 `숫자`/`숫자_p숫자` 이고 post 에 숫자가 없으면 그 숫자가 실제 게시물 ID 다.
+    # 괄호 안이 `숫자`/`숫자_p숫자` 이고 post 가 순수 숫자가 아니면(즉 앱 포맷의 ID 가 아니면)
+    # 그 숫자가 실제 게시물 ID 다.
     inner = tail.group("inner").strip()
     legacy_id = re.fullmatch(r"(\d+)(?:_p\d+)?", inner)
-    if legacy_id and not re.search(r"\d", post):
+    if legacy_id and not re.fullmatch(r"\d+", post):
         post = legacy_id.group(1)
     return {
         "posted_at": posted,
@@ -369,9 +370,17 @@ def refresh_source(session, source, prune=True):
         return site, post_id
 
     keys = {_key(post) for post in posts}
-    # (site, post_id) 는 전역 UNIQUE 제약이라, 이 소스에 없는(=다른 소스가 가진) 행도 함께 찾아야
-    # INSERT 충돌이 나지 않는다. 자기 소스 행만 갱신/정리 대상으로 삼는다.
-    existing: dict = {}
+    # 이 소스가 가진 행 전부 = prune(정리) 대상
+    owned: dict = {}
+    for row in (
+        session.execute(select(PostIndex).where(PostIndex.source_id == source_id))
+        .scalars()
+        .all()
+    ):
+        owned[(row.site, row.post_id)] = row
+    # (site, post_id) 는 전역 UNIQUE 제약이라, 다른 소스가 이미 가진 행도 함께 찾아야
+    # INSERT 충돌이 나지 않는다. 갱신은 자기 소스 행(or 신규)만 한다.
+    existing = dict(owned)
     if keys:
         rows = (
             session.execute(
@@ -384,9 +393,8 @@ def refresh_source(session, source, prune=True):
         )
         for row in rows:
             key = (row.site, row.post_id)
-            if key in keys and key not in existing:
-                existing[key] = row
-    owned = {key: row for key, row in existing.items() if row.source_id == source_id}
+            if key in keys:
+                existing.setdefault(key, row)
 
     created = updated = skipped = 0
     seen = set()
