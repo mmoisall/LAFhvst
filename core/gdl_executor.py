@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import json
 import os
 import re
@@ -7,7 +8,7 @@ import sys
 import time
 from datetime import datetime
 
-from . import browser_manager, metadata, models, utils
+from . import browser_manager, error_logger, metadata, models, utils
 from .database import get_session
 
 _ERROR_CODE_RE = re.compile(r"(?:code|error[_\s-]?code)[\s:=#-]*(\d{2,6})", re.IGNORECASE)
@@ -113,31 +114,159 @@ def ensure_app_config() -> str:
     이후 앱이 관리하며, 인증은 프로파일 `--cookies` 로 공급한다.
     """
     target = app_config_path()
-    if os.path.isfile(target):
-        return target
-    seed = None
-    try:
-        import json as _json
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            global_cfg = os.path.join(appdata, "gallery-dl", "config.json")
-            if os.path.isfile(global_cfg):
-                with open(global_cfg, "r", encoding="utf-8") as handle:
-                    seed = _json.load(handle)
-    except Exception:
+    if not os.path.isfile(target):
         seed = None
-    if not isinstance(seed, dict):
-        seed = {}
-    seed = _strip_config_secrets(seed)
-    seed.setdefault("downloader", {})
-    utils.ensure_dir(os.path.dirname(target))
-    try:
-        import json as _json
-        with open(target, "w", encoding="utf-8") as handle:
-            _json.dump(seed, handle, ensure_ascii=False, indent=2)
-    except Exception:
-        return target
+        try:
+            appdata = os.environ.get("APPDATA")
+            if appdata:
+                global_cfg = os.path.join(appdata, "gallery-dl", "config.json")
+                if os.path.isfile(global_cfg):
+                    with open(global_cfg, "r", encoding="utf-8") as handle:
+                        seed = json.load(handle)
+        except Exception:
+            seed = None
+        if not isinstance(seed, dict):
+            seed = {}
+        seed = _strip_config_secrets(seed)
+        seed.setdefault("downloader", {})
+        utils.ensure_dir(os.path.dirname(target))
+        try:
+            with open(target, "w", encoding="utf-8") as handle:
+                json.dump(seed, handle, ensure_ascii=False, indent=2)
+        except Exception:
+            return target
+    repair_placeholder_credentials(target)
     return target
+
+
+# gallery-dl 이 내장 기본값으로 제공하는 OAuth 자격증명(config 키 → 클래스 속성)
+_CREDENTIAL_ATTRS = {
+    "api-key": "API_KEY",
+    "api-secret": "API_SECRET",
+    "client-id": "CLIENT_ID",
+    "client-secret": "CLIENT_SECRET",
+}
+# `'...'`, `'xxxx'`, `'YOUR_API_KEY'` 처럼 실제 값이 아닌 더미로 보이는 값 판정
+_PLACEHOLDER_TOKENS = {
+    "placeholder", "none", "null", "dummy", "example", "changeme", "todo",
+    "your-api-key", "your_api_key", "yourapikey", "api-key", "api_key",
+    "your-client-id", "your_client_id", "your-client-secret",
+}
+_PLACEHOLDER_CHARS = set(".xX*?-_# ")
+
+
+def looks_like_placeholder(value) -> bool:
+    """더미 자격증명(`'...'` 등) 여부. 값이 없으면 False(내장 기본값이 그대로 쓰임)."""
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return False
+    if text.lower() in _PLACEHOLDER_TOKENS:
+        return True
+    return len(text) < 12 and set(text) <= _PLACEHOLDER_CHARS
+
+
+def _global_config_path() -> str | None:
+    appdata = os.environ.get("APPDATA")
+    return os.path.join(appdata, "gallery-dl", "config.json") if appdata else None
+
+
+def _load_config_json(path: str | None) -> dict | None:
+    if not path:
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def builtin_credentials(site: str) -> dict:
+    """gallery-dl 추출기 모듈이 내장한 OAuth 자격증명(없으면 빈 dict)."""
+    try:
+        module = importlib.import_module("gallery_dl.extractor." + site)
+    except Exception:
+        return {}
+    found: dict = {}
+    for obj in vars(module).values():
+        if not isinstance(obj, type):
+            continue
+        for key, attr in _CREDENTIAL_ATTRS.items():
+            if key in found:
+                continue
+            value = getattr(obj, attr, None)
+            if isinstance(value, str) and value:
+                found[key] = value
+    return found
+
+
+def repair_placeholder_credentials(path: str | None = None) -> list[dict]:
+    """전역 config 의 더미 자격증명을 gallery-dl 내장 기본값으로 덮어쓴다(앱 config 에 기록).
+
+    gallery-dl 은 `--config <앱 config>` 를 줘도 전역 config(`%APPDATA%\\gallery-dl\\config.json`)를
+    먼저 읽고 앱 config 로 덮어쓰므로, 전역의 `"api-key": "..."` 같은 더미 값이 **내장 기본값을 가린다**
+    (예: tumblr·deviantart OAuth → 401 Unauthorized). 앱 config 에 실제 내장값을 명시해 우회한다.
+    사용자가 앱 config 에 직접 넣은 실제 값은 건드리지 않는다.
+    """
+    target = path or app_config_path()
+    app_config = _load_config_json(target)
+    if app_config is None:
+        return []
+    global_config = _load_config_json(_global_config_path())
+    if not global_config:
+        return []
+    global_extractors = global_config.get("extractor") or {}
+    app_extractors = app_config.get("extractor")
+    if not isinstance(app_extractors, dict):
+        app_extractors = {}
+        app_config["extractor"] = app_extractors
+    changed: list[dict] = []
+    for site, global_section in global_extractors.items():
+        if not isinstance(global_section, dict):
+            continue
+        app_section = app_extractors.get(site)
+        if not isinstance(app_section, dict):
+            app_section = {}
+        pending = {}
+        for key in _CREDENTIAL_ATTRS:
+            if key not in global_section:
+                continue
+            own = app_section.get(key)
+            if own is not None and not looks_like_placeholder(own):
+                continue  # 사용자가 앱 config 에 실제 값을 지정 → 존중
+            effective = own if own is not None else global_section.get(key)
+            if not looks_like_placeholder(effective):
+                continue
+            pending[key] = True
+        if not pending:
+            continue
+        builtin = builtin_credentials(site)
+        for key in pending:
+            value = builtin.get(key)
+            if not value:
+                continue  # 내장값이 없으면(로그인 기반 사이트 등) 손대지 않는다
+            app_section[key] = value
+            changed.append({"site": site, "key": key})
+        if app_section:
+            app_extractors[site] = app_section
+    if not changed:
+        return []
+    try:
+        with open(target, "w", encoding="utf-8") as handle:
+            json.dump(app_config, handle, ensure_ascii=False, indent=2)
+    except Exception:
+        return []
+    error_logger.log(
+        "INFO",
+        "auth",
+        "전역 config(%s)의 더미 자격증명이 gallery-dl 내장 기본값을 가려 인증이 실패합니다 → 앱 config 에 실제 기본값을 기록했습니다: %s"
+        % (
+            _global_config_path(),
+            ", ".join("%s.%s" % (item["site"], item["key"]) for item in changed),
+        ),
+        scope="system",
+    )
+    return changed
 
 
 def build_command(
