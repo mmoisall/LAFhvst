@@ -154,6 +154,11 @@ _PLACEHOLDER_TOKENS = {
 }
 _PLACEHOLDER_CHARS = set(".xX*?-_# ")
 
+# 내장 기본값이 없는 OAuth 토큰: 더미 값이면 ``"cache"`` 로 되돌려 gallery-dl 이
+# 캐시된 토큰(없으면 무인증/공개 API)을 쓰게 한다. 예: deviantart 의 `"refresh-token": "..."`.
+_NEUTRALIZE_KEYS = ("refresh-token",)
+_NEUTRAL_VALUE = "cache"
+
 
 def looks_like_placeholder(value) -> bool:
     """더미 자격증명(`'...'` 등) 여부. 값이 없으면 False(내장 기본값이 그대로 쓰임)."""
@@ -238,15 +243,24 @@ def repair_placeholder_credentials(path: str | None = None) -> list[dict]:
             if not looks_like_placeholder(effective):
                 continue
             pending[key] = True
-        if not pending:
-            continue
-        builtin = builtin_credentials(site)
+        builtin = builtin_credentials(site) if pending else {}
         for key in pending:
             value = builtin.get(key)
             if not value:
                 continue  # 내장값이 없으면(로그인 기반 사이트 등) 손대지 않는다
             app_section[key] = value
-            changed.append({"site": site, "key": key})
+            changed.append({"site": site, "key": key, "value": value})
+        for key in _NEUTRALIZE_KEYS:
+            if key not in global_section:
+                continue
+            own = app_section.get(key)
+            if own is not None and not looks_like_placeholder(own):
+                continue
+            effective = own if own is not None else global_section.get(key)
+            if not looks_like_placeholder(effective):
+                continue
+            app_section[key] = _NEUTRAL_VALUE
+            changed.append({"site": site, "key": key, "value": _NEUTRAL_VALUE})
         if app_section:
             app_extractors[site] = app_section
     if not changed:
