@@ -40,6 +40,18 @@ def test_manifest_icons_exist(local_client):
         assert response.content[:8] == b"\x89PNG\r\n\x1a\n", icon["src"]
 
 
+def test_shell_assets_are_revalidated(local_client):
+    """앱 셸(HTML/JS/CSS)은 재검증 헤더를 보내야 한다.
+
+    헤더가 없으면 브라우저 휴리스틱 캐시가 **예전 JS** 를 재사용해 "UI 는 새것인데
+    스크립트는 예전 것"(설정 카드가 초기화되지 않음) 상태가 된다.
+    """
+    for path in ("/", "/index.html", "/pair.html", "/js/app.js", "/js/remote.js", "/css/style.css"):
+        response = local_client.get(path)
+        assert response.status_code == 200, path
+        assert response.headers.get("cache-control") == "no-cache", (path, response.headers)
+
+
 def test_service_worker_served_for_root_scope(local_client):
     response = local_client.get(SW)
     assert response.status_code == 200

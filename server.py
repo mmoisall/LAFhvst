@@ -480,6 +480,8 @@ _REMOTE_PUBLIC_PATHS = {
     "/api/e2e",
 }
 _REMOTE_PUBLIC_PREFIXES = ("/css/", "/js/", "/assets/", "/vendor/", "/icons/")
+# 앱 셸(정적 자산) — 캐시 재검증 대상
+_SHELL_CACHE_PREFIXES = ("/js/", "/css/", "/vendor/", "/icons/", "/assets/")
 
 _SCOPE_RANK = {"view": 0, "control": 1, "manage": 2}
 
@@ -541,6 +543,25 @@ def _remote_path_is_public(path: str) -> bool:
     if path in _REMOTE_PUBLIC_PATHS:
         return True
     return any(path.startswith(prefix) for prefix in _REMOTE_PUBLIC_PREFIXES)
+
+
+@app.middleware("http")
+async def static_cache_control(request: Request, call_next):
+    """앱 셸(HTML/JS/CSS)은 항상 재검증하게 한다.
+
+    정적 파일에 `Cache-Control` 이 없으면 브라우저가 휴리스틱 캐시로 **예전 JS** 를 재사용해
+    "UI 는 새것인데 스크립트는 예전 것" 상태가 된다(설정 카드가 초기화되지 않는 증상).
+    로컬 UI 이므로 캐시 이득이 없어 재검증(304)으로 충분하다.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if request.method == "GET" and (
+        path.endswith(".html")
+        or path in ("/", "/recommend")
+        or path.startswith(_SHELL_CACHE_PREFIXES)
+    ):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @app.middleware("http")

@@ -7,9 +7,12 @@
  *
  * 참고: 서비스 워커는 보안 컨텍스트(https 또는 localhost)에서만 등록된다.
  * 릴레이(https)로 접속하면 동작하고, 같은 네트워크의 http 접속에서는 등록되지 않는다.
+ *
+ * 셸(HTML/JS/CSS)을 바꾼 릴리스에서는 SHELL_CACHE 버전을 올려야 한다.
+ * (캐시 이름이 같으면 activate 가 이전 셸을 지우지 않아 예전 JS 가 계속 서빙된다)
  */
 
-var SHELL_CACHE = "lafhvst-shell-v1";
+var SHELL_CACHE = "lafhvst-shell-v2";
 var IMAGE_CACHE = "lafhvst-img-v1";
 var IMAGE_LIMIT = 150;
 var CACHE_PREFIX = "lafhvst-";
