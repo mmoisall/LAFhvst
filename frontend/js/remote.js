@@ -141,13 +141,37 @@
     renderDevices(status.devices || []);
   }
 
-  function refresh() {
-    return window.API.remoteStatus().then(render).catch(function (error) {
-      var stateText = byId("remoteStateText");
-      if (stateText) {
-        stateText.textContent = error.message || "원격 접속 상태를 불러오지 못했습니다.";
-      }
+  var REQUEST_TIMEOUT_MS = 8000;
+
+  function withTimeout(promise, label) {
+    // 요청이 영구 대기(차단/프록시/서버 무응답)하면 사용자에게 이유를 보여준다.
+    return new Promise(function (resolve, reject) {
+      var timer = window.setTimeout(function () {
+        reject(new Error((label || "요청") + " 응답 없음(차단되었거나 서버가 응답하지 않습니다)"));
+      }, REQUEST_TIMEOUT_MS);
+      promise.then(function (value) {
+        window.clearTimeout(timer);
+        resolve(value);
+      }, function (error) {
+        window.clearTimeout(timer);
+        reject(error);
+      });
     });
+  }
+
+  function setStateText(text) {
+    var el = byId("remoteStateText");
+    if (el) {
+      el.textContent = text;
+    }
+  }
+
+  function refresh() {
+    return withTimeout(window.API.remoteStatus(), "상태 조회")
+      .then(render)
+      .catch(function (error) {
+        setStateText(error.message || "원격 접속 상태를 불러오지 못했습니다.");
+      });
   }
 
   function applyResult(payload) {
@@ -168,20 +192,25 @@
 
   function toggleRemote() {
     var enabled = Boolean(state.status && state.status.enabled);
-    var action = enabled ? window.API.remoteDisable() : saveRelayUrl().then(function () {
-      return window.API.remoteEnable();
-    });
+    setStateText(enabled ? "원격 접속을 끄는 중…" : "원격 접속을 켜는 중…");
+    var action = enabled
+      ? withTimeout(window.API.remoteDisable(), "원격 접속 끄기")
+      : withTimeout(saveRelayUrl(), "설정 저장").then(function () {
+          return withTimeout(window.API.remoteEnable(), "원격 접속 켜기");
+        });
     action.then(function (payload) {
       return applyResult(payload);
     }).catch(function (error) {
+      setStateText(error.message || "원격 접속 설정 실패");
       toast(error.message || "원격 접속 설정 실패", "error");
     });
   }
 
   function rotate() {
-    window.API.remoteRotate().then(function (payload) {
+    withTimeout(window.API.remoteRotate(), "QR 재발급").then(function (payload) {
       return applyResult(payload);
     }).catch(function (error) {
+      setStateText(error.message || "QR 재발급 실패");
       toast(error.message || "QR 재발급 실패", "error");
     });
   }
@@ -208,7 +237,7 @@
     if (!window.confirm("이 기기의 원격 접속을 회수할까요?")) {
       return;
     }
-    window.API.remoteRevokeDevice(id).then(function () {
+    withTimeout(window.API.remoteRevokeDevice(id), "기기 회수").then(function () {
       toast("기기를 회수했습니다.", "success");
       refresh();
     }).catch(function (error) {
