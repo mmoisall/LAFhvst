@@ -67,6 +67,39 @@
       if (autoUpdate) {
         autoUpdate.checked = settings.autoUpdate === true;
       }
+      var remoteAllowDestructive = document.getElementById("remoteAllowDestructiveToggle");
+      if (remoteAllowDestructive) {
+        remoteAllowDestructive.checked = settings.remoteAllowDestructive === true;
+      }
+      var remoteAutoStart = document.getElementById("remoteAutoStartToggle");
+      if (remoteAutoStart) {
+        remoteAutoStart.checked = settings.remoteAutoStart === true;
+      }
+      var remoteRelayUrl = document.getElementById("remoteRelayUrlInput");
+      if (remoteRelayUrl && settings.remoteRelayUrl !== undefined) {
+        remoteRelayUrl.value = settings.remoteRelayUrl || "";
+      }
+      var notifyUrl = document.getElementById("notifyWebhookUrlInput");
+      if (notifyUrl && settings.notifyWebhookUrl !== undefined) {
+        notifyUrl.value = settings.notifyWebhookUrl || "";
+      }
+      var notifyPreset = document.getElementById("notifyPresetSelect");
+      if (notifyPreset && settings.notifyPreset) {
+        notifyPreset.value = settings.notifyPreset;
+      }
+      var notifySuccess = document.getElementById("notifyOnSuccessToggle");
+      if (notifySuccess) {
+        notifySuccess.checked = settings.notifyOnSuccess === true;
+      }
+      var notifyError = document.getElementById("notifyOnErrorToggle");
+      if (notifyError) {
+        notifyError.checked = settings.notifyOnError !== false;
+      }
+      var notifyInterval = document.getElementById("notifyMinIntervalInput");
+      if (notifyInterval && settings.notifyMinIntervalSec != null) {
+        notifyInterval.value = settings.notifyMinIntervalSec;
+      }
+      refreshNotifyStatus();
       var browserChannel = document.getElementById("browserChannelSelect");
       if (browserChannel && settings.browserChannel) {
         browserChannel.value = settings.browserChannel;
@@ -224,7 +257,31 @@
         : true,
       browserCleanup: document.getElementById("browserCleanupToggle")
         ? document.getElementById("browserCleanupToggle").checked
-        : true
+        : true,
+      remoteAllowDestructive: document.getElementById("remoteAllowDestructiveToggle")
+        ? document.getElementById("remoteAllowDestructiveToggle").checked
+        : false,
+      remoteAutoStart: document.getElementById("remoteAutoStartToggle")
+        ? document.getElementById("remoteAutoStartToggle").checked
+        : false,
+      remoteRelayUrl: document.getElementById("remoteRelayUrlInput")
+        ? document.getElementById("remoteRelayUrlInput").value.trim()
+        : "",
+      notifyWebhookUrl: document.getElementById("notifyWebhookUrlInput")
+        ? document.getElementById("notifyWebhookUrlInput").value.trim()
+        : "",
+      notifyPreset: document.getElementById("notifyPresetSelect")
+        ? document.getElementById("notifyPresetSelect").value
+        : "json",
+      notifyOnSuccess: document.getElementById("notifyOnSuccessToggle")
+        ? document.getElementById("notifyOnSuccessToggle").checked
+        : false,
+      notifyOnError: document.getElementById("notifyOnErrorToggle")
+        ? document.getElementById("notifyOnErrorToggle").checked
+        : true,
+      notifyMinIntervalSec: document.getElementById("notifyMinIntervalInput")
+        ? (parseInt(document.getElementById("notifyMinIntervalInput").value, 10) || 0)
+        : 60
     };
   }
 
@@ -353,6 +410,56 @@
     }
   }
 
+  function refreshNotifyStatus() {
+    var el = document.getElementById("notifyStateText");
+    if (!el || !window.API.notifyStatus) {
+      return;
+    }
+    window.API.notifyStatus().then(function (status) {
+      if (!status || !status.enabled) {
+        el.textContent = "알림이 꺼져 있습니다(웹훅 URL 없음).";
+        return;
+      }
+      el.textContent = "알림 켜짐 · 형식 " + (status.preset || "json") +
+        " · 대상 " + (status.url_host || "-");
+    }).catch(function () {
+      el.textContent = "알림 상태를 불러오지 못했습니다.";
+    });
+  }
+
+  function bindNotifyTools() {
+    var button = document.getElementById("notifyTestBtn");
+    var result = document.getElementById("notifyTestResult");
+    if (button) {
+      button.addEventListener("click", function () {
+        if (result) {
+          result.textContent = "전송 중…";
+        }
+        window.API.notifyTest().then(function (payload) {
+          if (!result) {
+            return;
+          }
+          if (payload && payload.ok) {
+            result.textContent = "전송했습니다 (HTTP " + payload.status + ").";
+          } else {
+            result.textContent = "실패: " +
+              ((payload && (payload.error || payload.skipped)) || "unknown");
+          }
+        }).catch(function (error) {
+          if (result) {
+            result.textContent = "실패: " + (error.message || "");
+          }
+        });
+      });
+    }
+    var form = document.getElementById("settingsForm");
+    if (form) {
+      form.addEventListener("submit", function () {
+        window.setTimeout(refreshNotifyStatus, 400);
+      });
+    }
+  }
+
   function init() {
     if (window.Help) {
       window.Help.init();
@@ -365,6 +472,9 @@
     }
     if (window.Update) {
       window.Update.init();
+    }
+    if (window.RemotePanel) {
+      window.RemotePanel.init();
     }
     if (window.Profiles) {
       window.Profiles.init();
@@ -384,6 +494,7 @@
     bindSettingsForm();
     bindDirtyTracking();
     bindMetadataTools();
+    bindNotifyTools();
     loadSettings();
   }
 

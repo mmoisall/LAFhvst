@@ -245,10 +245,42 @@
       return;
     }
     box.innerHTML = items.map(function (item) {
+      var stopping = item.stopping === true;
+      var badge = stopping
+        ? '<span class="badge">정지 중</span>'
+        : '<span class="badge">진행</span>';
+      var stopBtn = stopping
+        ? ""
+        : '<button class="btn btn-sm danger" type="button" data-stop-id="' + esc(item.id) +
+          '" title="수집 정지">■</button>';
       return '<div class="queue-item"><span class="mini-spinner"></span>' +
         '<span class="queue-name">' + esc(item.name || item.id) + '</span>' +
-        '<span class="badge">진행</span></div>';
+        badge + stopBtn + '</div>';
     }).join("");
+  }
+
+  function bindQueueStop() {
+    var box = byId("liveQueueList");
+    if (!box) {
+      return;
+    }
+    box.addEventListener("click", function (event) {
+      var button = event.target.closest ? event.target.closest("[data-stop-id]") : null;
+      if (!button) {
+        return;
+      }
+      event.stopPropagation();
+      window.API.stopSource(button.getAttribute("data-stop-id")).then(function () {
+        if (window.Toast && window.Toast.show) {
+          window.Toast.show("수집 정지를 요청했습니다.", "info");
+        }
+        refresh();
+      }).catch(function (error) {
+        if (window.Toast && window.Toast.show) {
+          window.Toast.show(error.message || "정지 요청 실패", "error");
+        }
+      });
+    });
   }
 
   function renderNextScheduled(live) {
@@ -433,6 +465,31 @@
     }).catch(function () {});
   }
 
+  // SSE: 대시보드/감시 이벤트를 밀어받는다. 연결 중에는 폴링을 건너뛴다(배터리/대역폭).
+  var eventStream = null;
+  var eventStreamLive = false;
+
+  function startEventStream() {
+    if (!window.API.openEventStream) {
+      return;
+    }
+    eventStream = window.API.openEventStream({
+      onOpen: function () {
+        eventStreamLive = true;
+      },
+      onClose: function () {
+        eventStreamLive = false;
+      },
+      onEvent: function (name, payload) {
+        if (name === "dashboard" && payload) {
+          renderLive(payload);
+        } else if (name === "watcher" && window.Watcher && window.Watcher.refreshStatus) {
+          window.Watcher.refreshStatus();
+        }
+      }
+    });
+  }
+
   // --------------------------------------------------- Recommendation widget
   function refreshRecommend() {
     var meta = byId("recommendWidgetMeta");
@@ -601,12 +658,14 @@
     setupServerModeButton();
     setupDiscord();
     bindControls();
+    bindQueueStop();
     loadSources().then(renderQuickLinks);
     loadLive();
+    startEventStream();
     refreshRecommend();
     if (!state.liveTimer) {
       state.liveTimer = window.setInterval(function () {
-        if (document.hidden) {
+        if (document.hidden || eventStreamLive) {
           return;
         }
         loadLive();

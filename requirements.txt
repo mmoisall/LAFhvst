@@ -8,3 +8,6 @@ playwright>=1.40
 Pillow>=10.0
 PyYAML>=6.0
 pystray>=0.19
+segno>=1.6
+cryptography>=42.0
+websockets>=13.0

@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>LAFhvst</title>
   <link rel="icon" href="data:,">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#000000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="LAFhvst">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="css/style.css?v=60">
 </head>
 <body>
@@ -369,6 +376,85 @@
           <div class="watcher-actions">
             <button id="updateCheckBtn" class="btn" type="button">지금 확인</button>
             <span id="updateStatusText" class="muted"></span>
+          </div>
+        </section>
+
+        <section class="settings-card" id="remoteCard">
+          <header class="settings-card-head">
+            <h2>원격 접속 (QR 페어링)</h2>
+            <p class="field-help">포트포워딩 없이 릴레이를 거쳐 휴대폰에서 제어합니다.</p>
+          </header>
+          <p id="remoteStateText" class="muted">상태 확인 중…</p>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span class="label-help">릴레이 주소<span class="help-icon" role="button" tabindex="0" data-help="PC가 아웃바운드로 접속할 릴레이 서버 주소입니다. 예: https://relay.example.com — 비워 두면 같은 네트워크(LAN) 주소만 사용합니다.">?</span></span>
+              <input type="text" id="remoteRelayUrlInput" placeholder="https://relay.example.com">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">원격 파괴적 작업 허용 (삭제·이동·초기화)<span class="help-icon" role="button" tabindex="0" data-help="켜면 페어링된 기기가 폴더/소스/프로파일 삭제, 배치 이동·삭제, 로그 비우기 같은 파괴적 작업을 할 수 있습니다. 기본은 차단입니다.">?</span></span>
+              <input type="checkbox" id="remoteAllowDestructiveToggle">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">앱 시작 시 자동 연결<span class="help-icon" role="button" tabindex="0" data-help="앱을 다시 켰을 때 릴레이 연결과 원격 접속을 자동으로 복구합니다.">?</span></span>
+              <input type="checkbox" id="remoteAutoStartToggle">
+            </label>
+          </div>
+          <div class="watcher-actions" id="remoteLocalActions">
+            <button id="remoteToggleBtn" class="btn primary" type="button">원격 접속 켜기</button>
+            <button id="remoteRotateBtn" class="btn" type="button">QR 재발급</button>
+            <button id="remoteCopyLinkBtn" class="btn" type="button">링크 복사</button>
+          </div>
+          <div class="remote-pair">
+            <img id="remoteQrImg" class="remote-qr hidden" alt="페어링 QR 코드">
+            <div class="remote-pair-info">
+              <p class="muted" id="remotePairMeta">활성 페어링 링크 없음</p>
+              <p class="muted">공개 주소 <span id="remoteUrlText">-</span></p>
+              <input type="text" id="remoteLinkText" class="remote-link" readonly
+                aria-label="페어링 링크">
+            </div>
+          </div>
+          <h3 class="remote-subhead">등록된 기기</h3>
+          <div id="remoteDeviceList"></div>
+        </section>
+
+        <section class="settings-card" id="notifyCard">
+          <header class="settings-card-head">
+            <h2>알림 (웹훅)</h2>
+            <p class="field-help">수집 완료·실패를 ntfy / Discord / Slack / Telegram 등으로 받습니다.</p>
+          </header>
+          <p id="notifyStateText" class="muted">설정을 불러오는 중…</p>
+          <div class="settings-grid">
+            <label class="setting-row">
+              <span class="label-help">웹훅 URL<span class="help-icon" role="button" tabindex="0" data-help="알림을 POST 할 주소입니다. 비워 두면 알림을 보내지 않습니다. 예: https://ntfy.sh/my-topic">?</span></span>
+              <input type="text" id="notifyWebhookUrlInput" placeholder="https://ntfy.sh/my-topic">
+            </label>
+            <label class="setting-row">
+              <span class="label-help">본문 형식<span class="help-icon" role="button" tabindex="0" data-help="수신 서비스에 맞는 본문 형식을 고릅니다. JSON 은 event/title/message/source_id 를 담고, ntfy·텍스트는 메시지 원문을 보냅니다.">?</span></span>
+              <select id="notifyPresetSelect">
+                <option value="json">JSON (기본)</option>
+                <option value="text">텍스트</option>
+                <option value="ntfy">ntfy</option>
+                <option value="discord">Discord</option>
+                <option value="slack">Slack</option>
+                <option value="telegram">Telegram</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span>수집 완료 알림</span>
+              <input type="checkbox" id="notifyOnSuccessToggle">
+            </label>
+            <label class="setting-row">
+              <span>수집 실패 알림</span>
+              <input type="checkbox" id="notifyOnErrorToggle" checked>
+            </label>
+            <label class="setting-row">
+              <span class="label-help">중복 억제 (초)<span class="help-icon" role="button" tabindex="0" data-help="같은 소스·같은 종류의 알림을 이 시간 안에 한 번만 보냅니다. 0 이면 억제하지 않습니다.">?</span></span>
+              <input type="number" id="notifyMinIntervalInput" min="0" step="10" value="60">
+            </label>
+          </div>
+          <div class="watcher-actions">
+            <button id="notifyTestBtn" class="btn" type="button">테스트 전송</button>
+            <span id="notifyTestResult" class="muted"></span>
           </div>
         </section>
 
@@ -969,6 +1055,7 @@
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
   <script src="js/vendor/Sortable.min.js?v=60"></script>
+  <script src="js/e2e.js?v=60"></script>
   <script src="js/api.js?v=60"></script>
   <script src="js/sites.js?v=60"></script>
   <script src="js/help.js?v=60"></script>
@@ -982,6 +1069,15 @@
   <script src="js/logs.js?v=60"></script>
   <script src="js/home.js?v=60"></script>
   <script src="js/update.js?v=60"></script>
+  <script src="js/remote.js?v=60"></script>
   <script src="js/app.js?v=60"></script>
+  <script>
+    // PWA: 보안 컨텍스트(https/localhost)에서만 등록된다.
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("/sw.js").catch(function () {});
+      });
+    }
+  </script>
 </body>
 </html>

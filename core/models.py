@@ -391,6 +391,25 @@ class AppSetting(Base):
     value: Mapped[str] = mapped_column(Text, default="null")
 
 
+class RemoteDevice(Base):
+    """원격 접속이 허용된 기기(페어링 완료). 평문 토큰은 저장하지 않는다."""
+
+    __tablename__ = "remote_devices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(120), default="")
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    role: Mapped[str] = mapped_column(String(20), default="control")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # E2E v2(종단간 암호화): 폰 공개키(SPKI b64url)와 마지막 요청 카운터(재전송 방지)
+    public_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    e2e_counter: Mapped[int] = mapped_column(Integer, default=-1)
+
+
 def get_app_settings() -> dict:
     from .database import get_session
 

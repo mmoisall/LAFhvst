@@ -1,0 +1,5 @@
+# 릴레이 서버 테스트/개발 전용 (런타임 아님)
+-r requirements.txt
+pytest>=8.0
+httpx>=0.27
+websockets>=12.0

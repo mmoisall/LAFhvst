@@ -5,6 +5,7 @@ import threading
 
 import uvicorn
 
+import server as server_module
 from core import app_control
 from core.database import init_db
 from core.utils import local_ipv4_addresses, resource_root
@@ -34,6 +35,7 @@ def _resolve_port() -> int:
 
 
 PORT = _resolve_port()
+server_module.SERVER_PORT = PORT
 WINDOW_URL = "http://127.0.0.1:" + str(PORT)
 
 

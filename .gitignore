@@ -17,6 +17,8 @@ dist/
 data/
 log/
 *.log
+# 릴레이 런타임 데이터(host_id → token_hash 레지스트리)
+relay/data/
 # 다운로드 폴더(<site> - <key> - <name>, 이름이 바뀌어도 무시)
 twitter - gamou131 - */
 

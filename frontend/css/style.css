@@ -2864,3 +2864,68 @@ body.drag-multiple .db-item.drag-source {
   display: flex;
   gap: 8px;
 }
+
+/* --- 원격 접속 (QR 페어링) --------------------------------------------- */
+.remote-pair {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.remote-qr {
+  width: 180px;
+  height: 180px;
+  padding: 8px;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.remote-pair-info {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.remote-link {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.remote-subhead {
+  margin: 16px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.remote-device {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.remote-device:last-child {
+  border-bottom: 0;
+}
+
+/* 원격 기기 모드: 데스크톱 전용 탭을 숨긴다 */
+body.remote-mode .nav-btn[data-tab="profiles"],
+body.remote-mode .nav-btn[data-tab="rules"],
+body.remote-mode #serverModeBtn {
+  display: none !important;
+}

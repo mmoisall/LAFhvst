@@ -1,8 +1,11 @@
 import asyncio
 import hashlib
+import io
+import json
 import mimetypes
 import os
 import platform
+import secrets
 import socket
 import subprocess
 import sys
@@ -10,9 +13,10 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -29,7 +33,11 @@ from core import (
     kde,
     metadata,
     models,
+    notifier,
     post_index,
+    remote_access,
+    remote_crypto,
+    remote_listener,
     site_url,
     sites,
     updater,
@@ -132,12 +140,46 @@ DEFAULT_SETTINGS = {
     "recommendWeightReply": 1.0,
     "recommendWeightQuote": 1.0,
     "recommendWeightView": 0.001,
+    "remoteEnabled": False,
+    "remoteAllowDestructive": False,
+    "remoteRelayUrl": "",
+    "remoteHostId": "",
+    "remoteAgentToken": "",
+    "remoteAutoStart": False,
+    "remoteE2EPrivateKey": "",
+    "remoteE2EPublicKey": "",
+    "notifyWebhookUrl": "",
+    "notifyPreset": "json",
+    "notifyOnSuccess": False,
+    "notifyOnError": True,
+    "notifyMinIntervalSec": 60,
 }
 SETTINGS = dict(DEFAULT_SETTINGS)
 
 _running: set[int] = set()
+_cancel_tokens: dict[int, "gdl_executor.CancelToken"] = {}
 _launching: set[int] = set()
 _pixiv_token_tasks: set[int] = set()
+
+# SSE(`/api/events`)
+SSE_INTERVAL_SECONDS = 3.0
+SSE_HEARTBEAT_SECONDS = 15.0
+SSE_MAX_CLIENTS = 4
+_sse_clients = 0
+
+# E2E v2(종단간 암호화) — 봉투는 릴레이에게 불투명하다. 계약: relay/protocol.md §9
+E2E_MAX_ENVELOPE_BYTES = 8 * 1024 * 1024
+E2E_MAX_INNER_BYTES = 6 * 1024 * 1024
+_e2e_counters: dict[int, int] = {}
+_e2e_counter_lock = threading.Lock()
+
+
+def _sse_message(event: str, data) -> bytes:
+    return (
+        "event: " + event + "\ndata: " + json.dumps(data, ensure_ascii=False, default=str) + "\n\n"
+    ).encode("utf-8")
+
+
 _tasks: set = set()
 
 _collect_sem: asyncio.Semaphore | None = None
@@ -374,9 +416,15 @@ async def lifespan(_app: FastAPI):
         except Exception as exc:  # pragma: no cover - 환경 의존
             error_logger.log("ERROR", "watcher", "watcher start failed: " + str(exc), scope="watcher")
     asyncio.create_task(_startup_update_check())
+    if SETTINGS.get("remoteEnabled") and SETTINGS.get("remoteAutoStart"):
+        asyncio.create_task(_remote_autostart())
     try:
         yield
     finally:
+        try:
+            await _remote_stop_transport()
+        except Exception:  # 종료 경로는 실패해도 계속 진행한다
+            pass
         try:
             await browser_watcher.stop()
         except Exception:
@@ -402,6 +450,650 @@ def write_settings(payload: dict) -> dict:
     SETTINGS["itemConfig"] = _normalize_item_config(SETTINGS.get("itemConfig"))
     models.update_app_settings({key: SETTINGS[key] for key in DEFAULT_SETTINGS})
     return dict(SETTINGS)
+
+
+# --- 원격 접속 (페어링 / 기기 토큰 / 릴레이) -------------------------------
+# 설계: docs/remote-access-plan.md §3.1, §4, §5.
+# 접근 판정의 유일한 근거는 "요청이 원격 리스너로 들어왔는가" + "기기 토큰이 유효한가" 이다.
+# 클라이언트가 보낸 IP/프록시 헤더로 로컬 여부를 판단하지 않는다.
+
+SERVER_PORT = 17363  # main.py 가 실제 포트로 덮어쓴다
+_remote_state: dict = {
+    "transport": "none",
+    "running": False,
+    "url": "",
+    "error": "",
+    "since": None,
+}
+_remote_listener: "remote_listener.RemoteListener | None" = None
+
+_REMOTE_PUBLIC_PATHS = {
+    "/",
+    "/index.html",
+    "/pair.html",
+    "/recommend",
+    "/manifest.webmanifest",
+    "/sw.js",
+    "/favicon.ico",
+    "/api/version",
+    "/api/pair/claim",
+    "/api/e2e",
+}
+_REMOTE_PUBLIC_PREFIXES = ("/css/", "/js/", "/assets/", "/vendor/", "/icons/")
+
+_SCOPE_RANK = {"view": 0, "control": 1, "manage": 2}
+
+# 본문 검증(422)보다 권한 검사가 먼저 오도록 미들웨어에서도 파괴적 경로를 막는다.
+_REMOTE_MANAGE_EXACT = {
+    ("POST", "/api/explorer/batch-move"),
+    ("POST", "/api/explorer/batch-delete"),
+    ("POST", "/api/logs/clear"),
+}
+_REMOTE_MANAGE_DELETE_PREFIXES = (
+    "/api/logs/",
+    "/api/folders/",
+    "/api/sources/",
+    "/api/profiles/",
+    "/api/profile-groups/",
+)
+_REMOTE_MANAGE_POST_PREFIXES = (
+    "/api/profiles/",
+    "/api/profile-groups/",
+    "/api/sources/",
+    "/api/folders/",
+)
+
+
+def _remote_manage_required(method: str, path: str) -> bool:
+    if (method, path) in _REMOTE_MANAGE_EXACT:
+        return True
+    if method == "DELETE" and path.startswith(_REMOTE_MANAGE_DELETE_PREFIXES):
+        return True
+    if method == "POST" and path.endswith(("/reset", "/alt-prune")):
+        return path.startswith(_REMOTE_MANAGE_POST_PREFIXES)
+    return False
+
+
+def _remote_manage_allowed(device: dict) -> bool:
+    if _SCOPE_RANK.get(device.get("role") or "view", 0) >= _SCOPE_RANK["manage"]:
+        return True
+    return bool(SETTINGS.get("remoteAllowDestructive"))
+
+
+def _bearer_token(request: Request) -> str | None:
+    header = request.headers.get("authorization") or ""
+    if header[:7].lower() != "bearer ":
+        return None
+    token = header[7:].strip()
+    return token or None
+
+
+def _remote_request_is_remote(request: Request) -> bool:
+    """원격 리스너 경유이거나 loopback 이 아니면 원격으로 취급한다."""
+    state = request.scope.get("state") or {}
+    if state.get("remote_listener"):
+        return True
+    client_host = request.client.host if request.client else None
+    return not utils.is_loopback(client_host)
+
+
+def _remote_path_is_public(path: str) -> bool:
+    if path in _REMOTE_PUBLIC_PATHS:
+        return True
+    return any(path.startswith(prefix) for prefix in _REMOTE_PUBLIC_PREFIXES)
+
+
+@app.middleware("http")
+async def remote_guard(request: Request, call_next):
+    request.state.remote_device = None
+    if not _remote_request_is_remote(request) or _remote_path_is_public(request.url.path):
+        return await call_next(request)
+    if not SETTINGS.get("remoteEnabled"):
+        return JSONResponse({"detail": "원격 접속이 꺼져 있습니다."}, status_code=403)
+    device = remote_access.verify(_bearer_token(request))
+    if device is None:
+        return JSONResponse(
+            {"detail": "기기 인증이 필요합니다. 페어링 링크로 기기를 등록하세요."},
+            status_code=401,
+            headers={"WWW-Authenticate": 'Bearer realm="lafhvst"'},
+        )
+    request.state.remote_device = device
+    if _remote_manage_required(request.method, request.url.path) and not _remote_manage_allowed(
+        device
+    ):
+        return JSONResponse(
+            {"detail": "원격 권한이 부족합니다: manage"}, status_code=403
+        )
+    client_host = remote_access.valid_ip_literal(
+        request.client.host if request.client else None
+    )
+    try:
+        await asyncio.to_thread(
+            remote_access.touch,
+            device["id"],
+            ip=client_host or "",
+            user_agent=request.headers.get("user-agent") or "",
+        )
+    except Exception:  # last_seen 갱신 실패가 요청을 막지 않도록
+        pass
+    return await call_next(request)
+
+
+def _require_local_only(request: Request) -> None:
+    """데스크톱(loopback)에서만 허용. 원격 기기는 IP와 무관하게 거부한다."""
+    if getattr(request.state, "remote_device", None) is not None:
+        raise HTTPException(status_code=403, detail="원격 접속에서는 지원하지 않는 기능입니다.")
+    _require_local_client(request)
+
+
+def _require_scope(request: Request, scope: str) -> None:
+    """원격 기기의 작업 범위 확인. 로컬(loopback)은 항상 통과."""
+    device = getattr(request.state, "remote_device", None)
+    if device is None:
+        return
+    if _SCOPE_RANK.get(device.get("role") or "view", 0) >= _SCOPE_RANK.get(scope, 99):
+        return
+    if scope == "manage" and _remote_manage_allowed(device):
+        return
+    raise HTTPException(status_code=403, detail="원격 권한이 부족합니다: " + scope)
+
+
+def _remote_host_id() -> str:
+    host_id = str(SETTINGS.get("remoteHostId") or "").strip()
+    if len(host_id) >= 16:
+        return host_id
+    host_id = secrets.token_urlsafe(16)
+    SETTINGS["remoteHostId"] = host_id
+    models.update_app_settings({"remoteHostId": host_id})
+    return host_id
+
+
+def _remote_agent_token() -> str:
+    token = str(SETTINGS.get("remoteAgentToken") or "").strip()
+    if len(token) >= 16:
+        return token
+    token = secrets.token_urlsafe(32)
+    SETTINGS["remoteAgentToken"] = token
+    models.update_app_settings({"remoteAgentToken": token})
+    return token
+
+
+def _remote_public_base() -> str:
+    """공개 주소. 릴레이 설정이 없으면 같은 네트워크(LAN) 주소로 폴백한다."""
+    relay = str(SETTINGS.get("remoteRelayUrl") or "").strip().rstrip("/")
+    if relay:
+        return relay + "/h/" + _remote_host_id()
+    addresses = utils.local_ipv4_addresses()
+    host = addresses[0] if addresses else "127.0.0.1"
+    return "http://%s:%d" % (host, SERVER_PORT)
+
+
+def _remote_pair_payload() -> dict | None:
+    """QR/링크에 담을 페어링 정보(활성 토큰이 없으면 None)."""
+    state = remote_access.pair_state()
+    token = state.get("token")
+    if not state.get("active") or not token:
+        return None
+    base = _remote_public_base()
+    name = "LAFhvst"
+    expires_at = int(state["expires_at"])
+    e2e = remote_crypto.AVAILABLE
+    app_public = ""
+    if e2e:
+        try:
+            _private, app_public = _e2e_keys()
+        except Exception:  # 키 생성 실패 시 평문(v1) 페어링으로 폴백
+            e2e = False
+            app_public = ""
+    suffix = "&v=2&pk=%s" % quote(app_public, safe="") if e2e else ""
+    link = "%s/pair.html#t=%s&n=%s&e=%d%s" % (
+        base,
+        quote(token, safe=""),
+        quote(name),
+        expires_at,
+        suffix,
+    )
+    app_link = "lafhvst://pair?v=%d&n=%s&u=%s&t=%s&e=%d%s" % (
+        2 if e2e else 1,
+        quote(name),
+        quote(base, safe=""),
+        quote(token, safe=""),
+        expires_at,
+        suffix,
+    )
+    return {
+        "host_id": _remote_host_id(),
+        "public_url": base,
+        "link": link,
+        "app_link": app_link,
+        "app_public_key": app_public,
+        "e2e": e2e,
+        "expires_at": state["expires_at"],
+        "expires_in": state["expires_in"],
+    }
+
+
+async def _remote_start_transport() -> dict:
+    """릴레이 연결 기동. 릴레이 미설정이면 LAN 전용으로 표시한다."""
+    from core import remote_tunnel
+
+    relay = str(SETTINGS.get("remoteRelayUrl") or "").strip()
+    desired = (relay + "/h/" + _remote_host_id()) if relay else _remote_public_base()
+    current = str(remote_tunnel.tunnel.state().get("url") or "")
+    if remote_tunnel.tunnel.running and current == desired:
+        # 이미 같은 목적지로 연결돼 있다(중복 세션은 서로를 대체해 요청이 끊긴다).
+        return _remote_transport_state()
+    if remote_tunnel.tunnel.running:
+        # 릴레이 주소가 바뀌었거나 LAN 전용으로 전환 → 기존 연결을 정리하고 새로 시작한다.
+        await _remote_stop_transport()
+    if not remote_access.pair_state().get("active"):
+        # 원격 접속이 켜져 있는 동안에는 항상 페어링 링크(QR)가 준비되어 있어야 한다.
+        remote_access.issue_pair_token()
+    if not relay:
+        _remote_state.update(
+            {
+                "transport": "lan",
+                "running": True,
+                "url": _remote_public_base(),
+                "error": "",
+                "since": time.time(),
+            }
+        )
+        return _remote_transport_state()
+
+    port = SERVER_PORT + 1
+    global _remote_listener
+    if _remote_listener is None:
+        _remote_listener = remote_listener.RemoteListener(app)
+    started = await asyncio.to_thread(_remote_listener.start, port)
+    if not started:
+        _remote_state.update(
+            {
+                "transport": "relay",
+                "running": False,
+                "url": _remote_public_base(),
+                "error": "원격 리스너(127.0.0.1:%d)를 열지 못했습니다." % port,
+                "since": time.time(),
+            }
+        )
+        return _remote_transport_state()
+    await remote_tunnel.tunnel.start(
+        relay_url=relay,
+        host_id=_remote_host_id(),
+        agent_token=_remote_agent_token(),
+        target_port=port,
+        label=_remote_label(),
+    )
+    _remote_state.update(remote_tunnel.tunnel.state())
+    _remote_state["listener_port"] = port
+    return _remote_transport_state()
+
+
+async def _remote_stop_transport() -> dict:
+    relay = str(SETTINGS.get("remoteRelayUrl") or "").strip()
+    if relay:
+        from core import remote_tunnel
+
+        await remote_tunnel.tunnel.stop()
+    if _remote_listener is not None:
+        await asyncio.to_thread(_remote_listener.stop)
+    _remote_state.update(
+        {
+            "transport": "none",
+            "running": False,
+            "url": "",
+            "error": "",
+            "since": None,
+            "listener_port": 0,
+        }
+    )
+    return _remote_transport_state()
+
+
+def _remote_transport_state() -> dict:
+    """전송 상태. 릴레이 사용 중이면 에이전트의 실시간 상태를 합쳐 반환한다."""
+    state = dict(_remote_state)
+    if str(SETTINGS.get("remoteRelayUrl") or "").strip():
+        from core import remote_tunnel
+
+        live = remote_tunnel.tunnel.state()
+        listener_port = state.get("listener_port", 0)
+        state.update(live)
+        state["listener_port"] = listener_port
+    return state
+
+
+def _remote_label() -> str:
+    try:
+        return "LAFhvst " + updater.current_version()
+    except Exception:
+        return "LAFhvst"
+
+
+async def _remote_autostart() -> None:
+    """앱 시작 시 원격 접속이 켜져 있고 자동 시작이면 릴레이 연결을 복구한다."""
+    try:
+        await _remote_start_transport()
+        error_logger.log("INFO", "remote", "원격 접속을 자동으로 시작했습니다.", scope="remote")
+    except Exception as exc:  # 시작 실패가 앱을 막지 않도록
+        _remote_state.update({"running": False, "error": str(exc)[:200]})
+        error_logger.log(
+            "ERROR", "remote", "원격 접속 자동 시작 실패 · " + str(exc), scope="remote"
+        )
+
+
+async def _notify(event: str, *, source_name: str, source_id: int | None, message: str) -> None:
+    """알림 웹훅 전송. 실패해도 수집 흐름을 막지 않는다."""
+    title = ("[LAFhvst] 수집 완료 · " if event == "success" else "[LAFhvst] 수집 실패 · ") + source_name
+    try:
+        await asyncio.to_thread(
+            notifier.notify,
+            event,
+            title=title,
+            message=message,
+            source_id=source_id,
+            settings=SETTINGS,
+        )
+    except Exception:  # 알림 실패는 조용히 무시한다
+        pass
+
+
+def _e2e_keys():
+    """앱 E2E 키쌍(최초 1회 생성해 설정에 보관). 반환: (개인키, 공개키 b64url)."""
+    private_text = str(SETTINGS.get("remoteE2EPrivateKey") or "").strip()
+    public_text = str(SETTINGS.get("remoteE2EPublicKey") or "").strip()
+    if private_text and public_text:
+        try:
+            return remote_crypto.load_private_key(private_text), public_text
+        except Exception:  # 손상된 키는 재발급한다(기존 기기는 재페어링 필요)
+            pass
+    private, public_text = remote_crypto.generate_keypair()
+    SETTINGS["remoteE2EPrivateKey"] = remote_crypto.private_key_b64(private)
+    SETTINGS["remoteE2EPublicKey"] = public_text
+    models.update_app_settings(
+        {
+            "remoteE2EPrivateKey": SETTINGS["remoteE2EPrivateKey"],
+            "remoteE2EPublicKey": public_text,
+        }
+    )
+    return private, public_text
+
+
+def _pair_claim_e2e(payload: "PairClaimPayload", request: Request) -> dict:
+    """E2E v2 페어링: 요청/응답 모두 페어링 토큰에서 파생한 키로 암호화한다."""
+    if not remote_crypto.AVAILABLE:
+        raise HTTPException(status_code=503, detail=remote_crypto.MISSING_REASON)
+    phone_public = (payload.pk or "").strip()
+    if not phone_public:
+        raise HTTPException(status_code=400, detail="폰 공개키가 없습니다.")
+    token = remote_access.pair_state().get("token")
+    if not token:
+        raise HTTPException(status_code=401, detail="활성 페어링 링크가 없습니다. QR을 다시 발급하세요.")
+    private, _public = _e2e_keys()
+    client_host = request.client.host if request.client else ""
+    try:
+        key = remote_crypto.pair_key(private, phone_public, token)
+        inner = remote_crypto.decode_pair_request(key, payload.model_dump())
+    except Exception:
+        remote_access.record_failure(client_host)
+        raise HTTPException(status_code=401, detail="페어링 봉투를 복호화할 수 없습니다.")
+    result = remote_access.claim(
+        inner["token"],
+        name=inner["name"],
+        ip=client_host,
+        user_agent=request.headers.get("user-agent") or "",
+        public_key=phone_public,
+    )
+    if result is None:
+        raise HTTPException(status_code=401, detail="페어링 토큰이 유효하지 않거나 만료되었습니다.")
+    error_logger.log(
+        "INFO",
+        "remote",
+        "원격 기기를 등록했습니다(E2E). · %s (%s)" % (result["device"]["name"], client_host or "-"),
+        scope="remote",
+    )
+    return remote_crypto.encode_pair_response(
+        key,
+        {
+            "device_id": result["device"]["id"],
+            "device_token": result["token"],
+            "host_id": _remote_host_id(),
+            "public_url": _remote_public_base(),
+            "name": result["device"]["name"],
+        },
+    )
+
+
+@app.post("/api/e2e")
+async def api_e2e(request: Request) -> Response:
+    """E2E v2 봉투 처리(릴레이는 본문을 해석할 수 없다).
+
+    봉투 안의 요청은 **원격 리스너를 경유**해 실행한다 → 미들웨어·스코프 검증이 그대로 적용된다.
+    """
+    body = await request.body()
+    if not remote_crypto.AVAILABLE:
+        raise HTTPException(status_code=503, detail=remote_crypto.MISSING_REASON)
+    if not body or body[0] != remote_crypto.ENVELOPE_MAGIC:
+        raise HTTPException(status_code=400, detail="지원하지 않는 봉투입니다.")
+    if len(body) > E2E_MAX_ENVELOPE_BYTES:
+        raise HTTPException(status_code=413, detail="봉투가 너무 큽니다.")
+    device_id = int.from_bytes(body[1:5], "big")
+    device = remote_access.e2e_device(device_id)
+    if device is None or not device.get("public_key"):
+        raise HTTPException(status_code=401, detail="등록된 E2E 기기가 아닙니다.")
+    private, _public = _e2e_keys()
+    try:
+        key = remote_crypto.session_key(private, device["public_key"], device_id)
+        inner = remote_crypto.decode_request(device_id, key, body)
+    except Exception:
+        raise HTTPException(status_code=401, detail="봉투를 복호화할 수 없습니다.")
+    if inner["path"].startswith("/api/e2e"):
+        raise HTTPException(status_code=400, detail="중첩 봉투는 허용하지 않습니다.")
+    if not remote_access.accept_counter(device_id, inner["counter"]):
+        raise HTTPException(status_code=401, detail="재전송된 요청입니다.")
+    status, headers, payload = await _e2e_inner_request(inner)
+    counter = _e2e_next_counter(device_id)
+    envelope = remote_crypto.encode_response(
+        device_id,
+        counter,
+        key,
+        status=status,
+        headers=_e2e_response_headers(headers),
+        body=payload,
+    )
+    return Response(
+        envelope,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _e2e_response_headers(headers: dict) -> dict:
+    """폰에 돌려줄 응답 헤더(홉바이홉·길이 관련 제거)."""
+    drop = {
+        "connection",
+        "keep-alive",
+        "transfer-encoding",
+        "content-length",
+        "date",
+        "server",
+    }
+    return {
+        str(key): str(value)
+        for key, value in (headers or {}).items()
+        if str(key).lower() not in drop
+    }
+
+
+def _e2e_next_counter(device_id: int) -> int:
+    """기기별 응답 카운터(폰이 단조 증가를 검증한다)."""
+    with _e2e_counter_lock:
+        value = _e2e_counters.get(device_id, -1) + 1
+        _e2e_counters[device_id] = value
+        return value
+
+
+async def _e2e_inner_request(inner: dict) -> tuple[int, dict, bytes]:
+    """봉투 안의 요청을 원격 리스너로 실행한다."""
+    if _remote_listener is None or not _remote_listener.running:
+        raise HTTPException(status_code=503, detail="원격 리스너가 실행 중이 아닙니다.")
+    from core import remote_tunnel
+
+    return await remote_tunnel.local_request(
+        SERVER_PORT + 1,
+        inner["method"],
+        inner["path"],
+        inner["query"],
+        inner["headers"],
+        inner["body"],
+        max_bytes=E2E_MAX_INNER_BYTES,
+    )
+
+
+@app.get("/api/notify/status")
+def notify_status() -> dict:
+    return notifier.status()
+
+
+@app.post("/api/notify/test")
+async def notify_test(request: Request) -> dict:
+    """설정된 웹훅으로 테스트 알림을 1회 보낸다(스로틀 무시)."""
+    _require_scope(request, "control")
+    return await asyncio.to_thread(notifier.send_test, settings=SETTINGS)
+
+
+class PairClaimPayload(BaseModel):
+    t: str = ""
+    name: str = ""
+    v: int = 1
+    pk: str = ""
+    enc: str = ""
+
+
+@app.get("/api/remote/status")
+def remote_status(request: Request) -> dict:
+    device = getattr(request.state, "remote_device", None)
+    if device is None:
+        _require_local_client(request)
+    state = _remote_transport_state()
+    payload = {
+        "enabled": bool(SETTINGS.get("remoteEnabled")),
+        "transport": state.get("transport") or "none",
+        "running": bool(state.get("running")),
+        "url": state.get("url") or "",
+        "error": state.get("error") or "",
+        "relay_url": str(SETTINGS.get("remoteRelayUrl") or ""),
+        "host_id": _remote_host_id(),
+        "allow_destructive": bool(SETTINGS.get("remoteAllowDestructive")),
+        "device": device,
+        "devices": [],
+        "pair": None,
+    }
+    if device is None:  # 기기 목록/페어링 정보는 데스크톱에서만 본다
+        payload["devices"] = remote_access.list_devices()
+        payload["pair"] = _remote_pair_payload()
+    else:
+        payload["devices"] = [device]  # 원격 기기는 자기 자신만 본다
+    return payload
+
+
+@app.post("/api/remote/enable")
+async def remote_enable(request: Request) -> dict:
+    _require_local_client(request)
+    SETTINGS["remoteEnabled"] = True
+    models.update_app_settings({"remoteEnabled": True})
+    remote_access.issue_pair_token()
+    await _remote_start_transport()
+    error_logger.log("INFO", "remote", "원격 접속을 켰습니다.", scope="remote")
+    return {
+        "ok": True,
+        "enabled": True,
+        "pair": _remote_pair_payload(),
+        "state": _remote_transport_state(),
+    }
+
+
+@app.post("/api/remote/disable")
+async def remote_disable(request: Request) -> dict:
+    _require_local_client(request)
+    SETTINGS["remoteEnabled"] = False
+    models.update_app_settings({"remoteEnabled": False})
+    remote_access.clear_pair_tokens()
+    await _remote_stop_transport()
+    error_logger.log("INFO", "remote", "원격 접속을 껐습니다.", scope="remote")
+    return {"ok": True, "enabled": False, "state": _remote_transport_state()}
+
+
+@app.post("/api/remote/rotate")
+def remote_rotate(request: Request) -> dict:
+    _require_local_client(request)
+    if not SETTINGS.get("remoteEnabled"):
+        raise HTTPException(status_code=409, detail="원격 접속이 꺼져 있습니다.")
+    remote_access.issue_pair_token()
+    return {"ok": True, "pair": _remote_pair_payload()}
+
+
+@app.delete("/api/remote/devices/{device_id}")
+def remote_revoke_device(device_id: int, request: Request) -> dict:
+    _require_local_client(request)
+    revoked = remote_access.revoke(device_id)
+    if revoked:
+        error_logger.log(
+            "INFO", "remote", "원격 기기를 회수했습니다. · id=%d" % device_id, scope="remote"
+        )
+    return {"ok": revoked}
+
+
+@app.get("/api/remote/qr.png")
+def remote_qr(request: Request) -> Response:
+    _require_local_client(request)
+    payload = _remote_pair_payload()
+    if payload is None:
+        raise HTTPException(status_code=404, detail="활성 페어링 링크가 없습니다.")
+    try:
+        import segno
+    except Exception:
+        raise HTTPException(status_code=503, detail="segno 패키지가 필요합니다.")
+    buffer = io.BytesIO()
+    segno.make(payload["link"], error="m").save(buffer, kind="png", scale=6, border=2)
+    return Response(
+        buffer.getvalue(),
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/pair/claim")
+def pair_claim(payload: PairClaimPayload, request: Request) -> dict:
+    if not SETTINGS.get("remoteEnabled"):
+        raise HTTPException(status_code=403, detail="원격 접속이 꺼져 있습니다.")
+    if int(payload.v or 1) >= 2 and payload.enc:
+        return _pair_claim_e2e(payload, request)
+    client_host = request.client.host if request.client else ""
+    result = remote_access.claim(
+        payload.t,
+        name=payload.name,
+        ip=client_host,
+        user_agent=request.headers.get("user-agent") or "",
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=401, detail="페어링 토큰이 유효하지 않거나 만료되었습니다."
+        )
+    error_logger.log(
+        "INFO",
+        "remote",
+        "원격 기기를 등록했습니다. · %s (%s)" % (result["device"]["name"], client_host or "-"),
+        scope="remote",
+    )
+    return {
+        "ok": True,
+        "device": result["device"],
+        "device_token": result["token"],
+        "host_id": _remote_host_id(),
+        "public_url": _remote_public_base(),
+    }
+
 
 
 @app.get("/api/version")
@@ -558,7 +1250,8 @@ def update_folder(folder_id: int, payload: FolderPayload) -> dict:
 
 
 @app.delete("/api/folders/{folder_id}")
-def delete_folder(folder_id: int) -> dict:
+def delete_folder(folder_id: int, request: Request) -> dict:
+    _require_scope(request, "manage")
     session = _session()
     try:
         return {"deleted": models.delete_folder(session, folder_id)}
@@ -573,6 +1266,64 @@ def list_sources() -> list[dict]:
         return models.list_all_sources(session)
     finally:
         session.close()
+
+
+@app.get("/api/events")
+async def api_events(request: Request) -> Response:
+    """SSE 스트림: 대시보드 변화와 감시 이벤트를 한 연결로 밀어준다(폴링 대체).
+
+    - 하트비트를 `SSE_HEARTBEAT_SECONDS` 마다 보낸다(릴레이/프록시의 무진행 타임아웃 60초보다 짧게).
+    - 동시 연결 수를 `SSE_MAX_CLIENTS` 로 제한한다(로컬 앱 보호).
+    """
+    _require_scope(request, "view")
+    global _sse_clients
+    if _sse_clients >= SSE_MAX_CLIENTS:
+        raise HTTPException(status_code=503, detail="이벤트 스트림 연결이 너무 많습니다.")
+
+    async def stream():
+        global _sse_clients
+        _sse_clients += 1
+        last_dashboard = ""
+        last_seq = 0
+        last_sent = time.time()
+        try:
+            yield b": connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                sent = False
+                try:
+                    dashboard = await asyncio.to_thread(_build_dashboard)
+                except Exception:
+                    dashboard = None
+                if dashboard is not None:
+                    digest = hashlib.sha1(
+                        json.dumps(
+                            dashboard, sort_keys=True, ensure_ascii=False, default=str
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    if digest != last_dashboard:
+                        last_dashboard = digest
+                        yield _sse_message("dashboard", dashboard)
+                        sent = True
+                for event in browser_watcher.events_since(last_seq):
+                    last_seq = max(last_seq, int(event.get("seq") or 0))
+                    yield _sse_message("watcher", event)
+                    sent = True
+                if sent:
+                    last_sent = time.time()
+                elif time.time() - last_sent >= SSE_HEARTBEAT_SECONDS:
+                    yield b": ping\n\n"
+                    last_sent = time.time()
+                await asyncio.sleep(SSE_INTERVAL_SECONDS)
+        finally:
+            _sse_clients -= 1
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/sources/{source_id}/kde")
@@ -687,6 +1438,9 @@ def _build_dashboard() -> dict:
             "id": sid,
             "name": name_by_id.get(sid) or ("소스 #%d" % sid),
             "state": "running",
+            "stopping": bool(
+                _cancel_tokens.get(sid) is not None and _cancel_tokens[sid].cancelled
+            ),
         }
         for sid in running_ids
     ]
@@ -758,7 +1512,8 @@ def update_source(source_id: int, payload: SourcePayload) -> dict:
 
 
 @app.delete("/api/sources/{source_id}")
-def delete_source(source_id: int) -> dict:
+def delete_source(source_id: int, request: Request) -> dict:
+    _require_scope(request, "manage")
     session = _session()
     try:
         return {"deleted": models.delete_source(session, source_id)}
@@ -868,7 +1623,10 @@ async def alt_sync_folder(folder_id: int, payload: AltSyncPayload | None = None)
 
 
 @app.post("/api/sources/{source_id}/alt-prune")
-async def alt_prune_source(source_id: int, payload: AltSyncPayload | None = None) -> dict:
+async def alt_prune_source(
+    source_id: int, request: Request, payload: AltSyncPayload | None = None
+) -> dict:
+    _require_scope(request, "manage")
     kind = (payload.kind if payload else "both") or "both"
     session = _session()
     try:
@@ -1301,7 +2059,7 @@ def _require_local_client(request: Request) -> None:
 
 @app.post("/api/sources/{source_id}/reveal")
 def reveal_source(source_id: int, request: Request) -> dict:
-    _require_local_client(request)
+    _require_local_only(request)
     directory = _source_directory(source_id)
     if directory is None:
         raise HTTPException(status_code=404, detail="source not found")
@@ -1317,7 +2075,7 @@ def reveal_source(source_id: int, request: Request) -> dict:
 
 @app.post("/api/folders/{folder_id}/reveal")
 def reveal_folder(folder_id: int, request: Request) -> dict:
-    _require_local_client(request)
+    _require_local_only(request)
     session = _session()
     try:
         folder = models.get_folder(session, folder_id)
@@ -1684,8 +2442,9 @@ def launching_profiles() -> dict:
 
 
 @app.post("/api/profiles/{profile_id}/pixiv-token")
-async def issue_pixiv_token(profile_id: int) -> dict:
+async def issue_pixiv_token(profile_id: int, request: Request) -> dict:
     """프로파일 브라우저로 pixiv refresh token 을 발급해 앱 config 에 저장한다."""
+    _require_local_only(request)
     if profile_id in _pixiv_token_tasks:
         return {"ok": True, "started": False, "already_running": True, "profile_id": profile_id}
     _pixiv_token_tasks.add(profile_id)
@@ -1753,7 +2512,8 @@ def update_profile(profile_id: int, payload: ProfilePayload) -> dict:
 
 
 @app.delete("/api/profiles/{profile_id}")
-def delete_profile(profile_id: int) -> dict:
+def delete_profile(profile_id: int, request: Request) -> dict:
+    _require_scope(request, "manage")
     session = _session()
     try:
         return {"deleted": models.delete_profile(session, profile_id)}
@@ -1762,7 +2522,8 @@ def delete_profile(profile_id: int) -> dict:
 
 
 @app.post("/api/profiles/{profile_id}/reset")
-def reset_profile(profile_id: int) -> dict:
+def reset_profile(profile_id: int, request: Request) -> dict:
+    _require_scope(request, "manage")
     session = _session()
     try:
         profile = models.reset_profile_learning(session, profile_id)
@@ -1795,7 +2556,10 @@ def profile_learning(profile_id: int, limit: int = 50) -> list[dict]:
 
 
 @app.post("/api/profiles/{profile_id}/launch")
-async def launch_profile(profile_id: int, payload: ProfileLaunchPayload | None = None) -> dict:
+async def launch_profile(
+    profile_id: int, request: Request, payload: ProfileLaunchPayload | None = None
+) -> dict:
+    _require_local_only(request)
     if not browser_manager.is_available():
         raise HTTPException(
             status_code=400,
@@ -1876,7 +2640,8 @@ def update_profile_group(group_id: int, payload: ProfileGroupPayload) -> dict:
 
 
 @app.delete("/api/profile-groups/{group_id}")
-def delete_profile_group(group_id: int) -> dict:
+def delete_profile_group(group_id: int, request: Request) -> dict:
+    _require_scope(request, "manage")
     session = _session()
     try:
         return {"deleted": models.delete_profile_group(session, group_id)}
@@ -1885,7 +2650,8 @@ def delete_profile_group(group_id: int) -> dict:
 
 
 @app.post("/api/profile-groups/{group_id}/reset")
-def reset_profile_group(group_id: int) -> dict:
+def reset_profile_group(group_id: int, request: Request) -> dict:
+    _require_scope(request, "manage")
     session = _session()
     try:
         group = models.reset_profile_group(session, group_id)
@@ -2012,7 +2778,8 @@ async def watcher_toggle(payload: WatcherTogglePayload) -> dict:
 
 
 @app.post("/api/explorer/batch-move")
-def batch_move(payload: BatchMovePayload) -> dict:
+def batch_move(payload: BatchMovePayload, request: Request) -> dict:
+    _require_scope(request, "manage")
     session = _session()
     moved = 0
     errors: list[str] = []
@@ -2048,7 +2815,8 @@ def batch_edit(payload: BatchEditPayload) -> dict:
 
 
 @app.post("/api/explorer/batch-delete")
-def batch_delete(payload: BatchDeletePayload) -> dict:
+def batch_delete(payload: BatchDeletePayload, request: Request) -> dict:
+    _require_scope(request, "manage")
     session = _session()
     deleted = 0
     try:
@@ -2290,6 +3058,8 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
     if source_id in _running:
         return {"id": source_id, "status": "running"}
     _running.add(source_id)
+    cancel_token = gdl_executor.CancelToken()
+    _cancel_tokens[source_id] = cancel_token
     sem = _collect_semaphore()
     acquired = False
     try:
@@ -2392,8 +3162,9 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
                 timeout=float(timeout_val) if timeout_val is not None else None,
                 limit_rate=limit_rate_val,
                 metadata_yaml=bool(config.get("metadata_yaml", gdl_defaults.get("metadata_yaml"))),
+                cancel_token=cancel_token,
             )
-            if engine.get("ok"):
+            if engine.get("ok") or engine.get("cancelled"):
                 break
             # 프로파일 할당량(rate_limit) 이슈는 재시도 규칙 예외 → 즉시 종료(쿨다운 학습)
             kind = error_logger.classify_category(engine.get("errors"))
@@ -2412,6 +3183,23 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
             )
             await asyncio.sleep(max(0.0, retry_delay))
         engine["retries"] = retries
+
+        if engine.get("cancelled"):
+            await asyncio.to_thread(
+                error_logger.log,
+                "INFO",
+                "run",
+                "수집을 취소했습니다.",
+                source_id=source_id,
+                profile_id=profile_id,
+                scope="source",
+            )
+            return {
+                "id": source_id,
+                "name": source.get("name"),
+                "status": "cancelled",
+                "directory": directory,
+            }
 
         if engine.get("ok"):
             mtime = await asyncio.to_thread(utils.newest_file_mtime, directory)
@@ -2463,6 +3251,17 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
                     "directory": directory,
                 },
             )
+            await _notify(
+                "success",
+                source_name=source.get("name") or ("소스 #%d" % source_id),
+                source_id=source_id,
+                message="%s · 신규 %d개%s"
+                % (
+                    source.get("url") or "",
+                    int(engine.get("usage_delta") or 0),
+                    " · " + directory if directory else "",
+                ),
+            )
             return {
                 "id": source_id,
                 "name": source.get("name"),
@@ -2493,6 +3292,12 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
                 "directory": directory,
             },
         )
+        await _notify(
+            "error",
+            source_name=source.get("name") or ("소스 #%d" % source_id),
+            source_id=source_id,
+            message=error_logger.summarize_errors(engine.get("errors")),
+        )
         return {
             "id": source_id,
             "name": source.get("name"),
@@ -2513,16 +3318,44 @@ async def _collect_source(source_id: int, overrides: dict | None = None) -> dict
             source_id=source_id,
             scope="source",
         )
+        await _notify(
+            "error",
+            source_name=source.get("name") or ("소스 #%d" % source_id),
+            source_id=source_id,
+            message=str(exc),
+        )
         return {"id": source_id, "status": "error", "message": str(exc)}
     finally:
         if acquired:
             sem.release()
+        _cancel_tokens.pop(source_id, None)
         _running.discard(source_id)
 
 
 @app.get("/api/explorer/running")
 def running_sources() -> dict:
-    return {"running": sorted(_running)}
+    return {
+        "running": sorted(_running),
+        "stopping": sorted(
+            source_id for source_id, token in _cancel_tokens.items() if token.cancelled
+        ),
+    }
+
+
+@app.post("/api/sources/{source_id}/stop")
+def stop_source(source_id: int, request: Request) -> dict:
+    """실행 중인 수집을 취소한다(원격 제어의 핵심 동작)."""
+    _require_scope(request, "control")
+    if source_id not in _running:
+        return {"ok": False, "reason": "not_running", "source_id": source_id}
+    token = _cancel_tokens.get(source_id)
+    if token is None:
+        return {"ok": False, "reason": "not_cancellable", "source_id": source_id}
+    token.cancel()
+    error_logger.log(
+        "INFO", "run", "수집 정지를 요청했습니다.", source_id=source_id, scope="source"
+    )
+    return {"ok": True, "source_id": source_id, "stopping": True}
 
 
 # ---------------------------------------------------------------------------
@@ -2635,7 +3468,8 @@ async def retry_log(log_id: int) -> dict:
 
 
 @app.delete("/api/logs/{log_id}")
-def delete_log(log_id: int) -> dict:
+def delete_log(log_id: int, request: Request) -> dict:
+    _require_scope(request, "manage")
     session = _session()
     try:
         return {"deleted": models.delete_log(session, log_id)}
@@ -2644,7 +3478,8 @@ def delete_log(log_id: int) -> dict:
 
 
 @app.post("/api/logs/clear")
-def clear_logs(payload: LogClearPayload) -> dict:
+def clear_logs(payload: LogClearPayload, request: Request) -> dict:
+    _require_scope(request, "manage")
     session = _session()
     try:
         count = models.clear_logs(

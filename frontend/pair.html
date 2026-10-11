@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="referrer" content="no-referrer">
+  <title>LAFhvst 페어링</title>
+  <link rel="icon" href="data:,">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css?v=60">
+  <style>
+    .pair-wrap {
+      max-width: 420px;
+      margin: 0 auto;
+      padding: 40px 20px calc(40px + var(--safe-bottom));
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .pair-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .pair-card h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+    .pair-status {
+      font-size: 14px;
+      color: var(--muted);
+      white-space: pre-line;
+    }
+    .pair-status.error { color: var(--danger); }
+    .pair-status.ok { color: var(--success); }
+  </style>
+</head>
+<body>
+  <main class="pair-wrap">
+    <section class="pair-card">
+      <h1>LAFhvst 페어링</h1>
+      <p class="pair-status" id="pairStatus">페어링 정보를 확인하는 중…</p>
+      <button class="btn primary hidden" id="pairGoBtn" type="button">제어 화면 열기</button>
+      <p class="muted" id="pairHint"></p>
+    </section>
+  </main>
+
+  <script src="js/e2e.js?v=60"></script>
+  <script>
+    (function () {
+      "use strict";
+
+      var TOKEN_KEY = "lafDeviceToken";
+      var E2E_DEVICE_KEY = "lafE2EDeviceId";
+      var E2E_APP_PUBLIC_KEY = "lafE2EAppPublic";
+      var AAD_PAIR_REQUEST = "lafhvst-pair-v2|req|";
+      var AAD_PAIR_RESPONSE = "lafhvst-pair-v2|res|";
+      var statusEl = document.getElementById("pairStatus");
+      var goBtn = document.getElementById("pairGoBtn");
+      var hintEl = document.getElementById("pairHint");
+
+      function setStatus(text, kind) {
+        statusEl.textContent = text;
+        statusEl.className = "pair-status" + (kind ? " " + kind : "");
+      }
+
+      function fragment() {
+        var raw = (window.location.hash || "").replace(/^#/, "");
+        var out = {};
+        raw.split("&").forEach(function (part) {
+          var index = part.indexOf("=");
+          if (index > 0) {
+            out[decodeURIComponent(part.slice(0, index))] =
+              decodeURIComponent(part.slice(index + 1));
+          }
+        });
+        return out;
+      }
+
+      function goToApp() {
+        window.location.replace("/");
+      }
+
+      function storeSession(deviceToken, deviceId, appPublic) {
+        try {
+          window.localStorage.setItem(TOKEN_KEY, deviceToken);
+          if (deviceId) {
+            window.localStorage.setItem(E2E_DEVICE_KEY, String(deviceId));
+          }
+          if (appPublic) {
+            window.localStorage.setItem(E2E_APP_PUBLIC_KEY, appPublic);
+          }
+        } catch (error) {
+          setStatus("토큰을 저장하지 못했습니다(브라우저 저장소 차단).", "error");
+          return false;
+        }
+        return true;
+      }
+
+      function postClaim(body) {
+        return fetch("/api/pair/claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        }).then(function (response) {
+          return response.json().then(function (data) {
+            return { ok: response.ok, status: response.status, data: data };
+          });
+        });
+      }
+
+      function finishPairing(name) {
+        window.history.replaceState(null, "", "/pair.html");
+        setStatus("페어링 완료 · " + (name || "기기") + " 로 등록되었습니다.", "ok");
+        goBtn.classList.remove("hidden");
+        hintEl.textContent = "홈 화면에 추가하면 앱처럼 사용할 수 있습니다.";
+        window.setTimeout(goToApp, 1200);
+      }
+
+      /** E2E v2: 페어링 토큰에서 파생한 키로 요청/응답을 암호화한다(릴레이가 토큰을 볼 수 없다). */
+      function claimV2(token, name, appPublic) {
+        if (!window.E2E || !window.E2E.supported()) {
+          return claimV1(token, name);
+        }
+        var pairKey = null;
+        return window.E2E.ensureIdentity().then(function (identity) {
+          return window.E2E.pairKeyFor(appPublic, token).then(function (key) {
+            pairKey = key;
+            return window.E2E.sealPair(key, { t: token, name: name || "" }, AAD_PAIR_REQUEST);
+          }).then(function (enc) {
+            return postClaim({ v: 2, pk: identity.publicB64, enc: enc });
+          }).then(function (result) {
+            if (!result.ok) {
+              throw new Error((result.data && result.data.detail) || "페어링에 실패했습니다.");
+            }
+            return window.E2E.openPair(pairKey, result.data.enc, AAD_PAIR_RESPONSE);
+          }).then(function (inner) {
+            if (!storeSession(inner.device_token, inner.device_id, appPublic)) {
+              return;
+            }
+            if (window.E2E.clearCounter) {
+              window.E2E.clearCounter(); // 새 기기는 카운터 0부터
+            }
+            finishPairing(inner.name);
+          });
+        });
+      }
+
+      function claimV1(token, name) {
+        return postClaim({ t: token, name: name || "" }).then(function (result) {
+          if (!result.ok) {
+            setStatus(result.data && result.data.detail
+              ? result.data.detail
+              : "페어링에 실패했습니다. 데스크톱에서 QR을 다시 발급하세요.", "error");
+            return;
+          }
+          if (!storeSession(result.data.device_token, 0, "")) {
+            return;
+          }
+          finishPairing(result.data.device ? result.data.device.name : "기기");
+        });
+      }
+
+      function claim(token, name, appPublic) {
+        var action = appPublic ? claimV2(token, name, appPublic) : claimV1(token, name);
+        return action.catch(function (error) {
+          setStatus(error && error.message
+            ? error.message
+            : "페어링에 실패했습니다. 데스크톱에서 QR을 다시 발급하세요.", "error");
+        });
+      }
+
+      var parts = fragment();
+      var token = parts.t || "";
+      var existing = "";
+      try {
+        existing = window.localStorage.getItem(TOKEN_KEY) || "";
+      } catch (error) {
+        existing = "";
+      }
+      if (!token) {
+        if (existing) {
+          setStatus("이미 페어링된 기기입니다.", "ok");
+          goBtn.classList.remove("hidden");
+          goBtn.addEventListener("click", goToApp);
+          window.setTimeout(goToApp, 800);
+        } else {
+          setStatus("페어링 토큰이 없습니다.\n데스크톱 앱의 설정 → 원격 접속에서 QR을 다시 스캔하세요.", "error");
+        }
+        return;
+      }
+
+      goBtn.addEventListener("click", goToApp);
+      setStatus("기기를 등록하는 중…");
+      claim(token, parts.n || "", parts.pk ? decodeURIComponent(parts.pk) : "");
+    })();
+  </script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("/sw.js").catch(function () {});
+      });
+    }
+  </script>
+</body>
+</html>

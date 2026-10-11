@@ -21,13 +21,15 @@ datas = [
 binaries = []
 hiddenimports = []
 
-for package in ("playwright", "webview", "pythonnet", "clr_loader", "gallery_dl", "pystray"):
+for package in ("playwright", "webview", "pythonnet", "clr_loader", "gallery_dl", "pystray", "cryptography"):
     pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
     datas += pkg_datas
     binaries += pkg_binaries
     hiddenimports += pkg_hidden
 
 hiddenimports += collect_submodules("uvicorn")
+hiddenimports += collect_submodules("websockets")
+hiddenimports += collect_submodules("segno")
 hiddenimports += [
     "clr",
     "webview.platforms.edgechromium",
@@ -40,6 +42,8 @@ hiddenimports += [
     "uvicorn.protocols.websockets.auto",
     "uvicorn.lifespan.on",
     "uvicorn.lifespan.off",
+    "websockets.asyncio.client",
+    "websockets.asyncio.connection",
 ]
 
 ICON = os.path.join(ROOT, "assets", "LAFhvst.ico")

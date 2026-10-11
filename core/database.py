@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from . import utils
 from .models import Base
 
-DB_PATH = os.path.join(utils.project_root(), "lafhvst.db")
+DB_PATH = os.environ.get("LAF_DB_PATH") or os.path.join(utils.project_root(), "lafhvst.db")
 DB_URL = "sqlite:///" + DB_PATH.replace(os.sep, "/")
 
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False}, future=True)
@@ -106,6 +106,10 @@ _MIGRATIONS = {
         "keyword_pattern": "TEXT DEFAULT '[]'",
         "target_folder_id": "INTEGER",
         "is_active": "BOOLEAN DEFAULT 1",
+    },
+    "remote_devices": {
+        "public_key": "TEXT",
+        "e2e_counter": "INTEGER DEFAULT -1",
     },
 }
 

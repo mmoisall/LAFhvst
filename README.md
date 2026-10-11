@@ -22,6 +22,8 @@ alternate-path sync from a single local web UI.
 - **Alternate paths (alt/cmb)**: sync original folders via hardlink/copy, flat merge, prune
 - **Log / error analysis**: collect, classify, and track resolution of gallery-dl error logs
 - **Explorer**: server file browsing, batch move/edit/delete/run, thumbnails
+- **Remote control (QR pairing)**: control the server from a phone through a self-hosted relay
+  (`relay/`) — no port forwarding; device tokens, scoped permissions, revocable devices
 - **HVST migration**: the old `hvst.db` → `lafhvst.db` tool lives in a separate repo
   [mmoisall/LAF](https://github.com/mmoisall/LAF)
 
@@ -29,7 +31,7 @@ alternate-path sync from a single local web UI.
 
 - Windows (pywebview desktop window), Python 3.11+
 - Dependencies: see `requirements.txt` (FastAPI, uvicorn, pywebview, SQLAlchemy, APScheduler,
-  gallery-dl, playwright, Pillow)
+  gallery-dl, playwright, Pillow, segno, websockets)
 
 ### Install
 
@@ -48,6 +50,51 @@ python main.py --serve    # server only, no window (or LAF_NO_GUI=1)
 ```
 
 On start, the local (`http://127.0.0.1:17363`) and same-network addresses are printed to the console.
+
+### Remote access (QR pairing)
+
+Control the running server from a phone without port forwarding. The PC opens an **outbound**
+WebSocket to your own relay (`relay/`), so the phone reaches the app at a stable public URL.
+
+1. Deploy the relay: see [`relay/README.md`](relay/README.md) (VPS + domain + Caddy TLS).
+2. Settings → **원격 접속 (QR 페어링)**: enter the relay address, press **원격 접속 켜기**.
+3. Scan the QR (or send the pairing link) on the phone. `/pair.html` claims a one-time token and
+   stores the device token in `localStorage`.
+
+Behaviour:
+
+- Every non-loopback request (LAN **and** relay) requires a paired device token. The desktop window
+  (loopback) is unaffected.
+- Destructive actions (delete / move / reset / log clear) are refused for remote devices unless
+  **원격 파괴적 작업 허용** is enabled.
+- `reveal` (open Explorer) and profile login launch are desktop-only.
+- Remote clients receive the 400px thumbnail path only (`THUMBNAIL_MAX_PX`).
+- Pairing tokens are single-use, expire after 5 minutes, and rotate after each successful pairing;
+  the device list and revoke buttons live in the same settings card.
+- `원격 접속 끄기` stops the relay connection immediately (the public URL becomes unavailable).
+- **Stop a running collection** from the phone: the home *Live queue* widget and the DB source row show
+  a `■` button while a source is running (`POST /api/sources/{id}/stop`). Cancelling does not count as
+  a failure and leaves only an INFO log.
+- **Install as an app (PWA)**: over the relay (https) the browser offers "Add to Home screen" —
+  manifest, icons and a service worker are served by the app itself. The service worker caches the
+  shell and 400px thumbnails only; API JSON is never cached. It does not register over plain-http LAN.
+- **Live updates (SSE)**: `GET /api/events` pushes dashboard changes and watcher events over one
+  connection; the home screen skips its 4s polling while the stream is connected and falls back to
+  polling when it drops.
+- **Notifications (webhook)**: Settings → **알림 (웹훅)** — set a URL (ntfy / Discord / Slack /
+  Telegram or a plain JSON/text endpoint), choose the body format, and toggle success/failure
+  alerts. **테스트 전송** sends one immediately. Duplicate alerts are throttled per
+  source+kind (`notifyMinIntervalSec`); cancelled runs never notify.
+- **End-to-end encryption (E2E)**: the relay (and anything terminating TLS in front of it) only
+  forwards opaque envelopes — request paths, headers and the device token live inside an
+  AES-256-GCM payload. Keys are negotiated per device (ECDH P-256 + HKDF-SHA256) during pairing, and
+  the app's public key travels in the QR/pairing link. Replayed envelopes are rejected.
+  While E2E is active the phone polls instead of using SSE (an envelope is a single round trip).
+  Requires `cryptography` on the PC; if it is missing the app still runs with plaintext (v1) pairing.
+- Protocol contract: [`relay/protocol.md`](relay/protocol.md) (v1 frames + §9 E2E v2). Design notes:
+  [`docs/remote-access-plan.md`](docs/remote-access-plan.md).
+- Integration testing (relay + agent + phone end-to-end): [`tests/integration/README.md`](tests/integration/README.md)
+  — `python tests/integration/local_relay.py` and `node tests/integration/phone_webcrypto.js`.
 
 ### EXE (Releases)
 
@@ -94,6 +141,11 @@ When a new version exists, a banner appears on the Home screen and can be applie
 **Install update**. The update quits the app, replaces files, and restarts; data (`data/`,
 `lafhvst.db`, `log/`) is preserved. When running from source, only the check works and install is
 disabled.
+
+Release notes are composed by the release workflow from [`docs/release-notes.md`](docs/release-notes.md)
+(curated highlights + breaking-change/migration notes) followed by the commit list since the previous
+tag. **Update `docs/release-notes.md` before pushing a `v*` tag** — auto-generated notes alone miss
+migration steps. Tag format: `v0.2.0` (the workflow passes the version to `build.ps1`).
 
 ### Data & settings
 
@@ -199,6 +251,48 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 
 실행하면 로컬(`http://127.0.0.1:17363`) 및 동일 네트워크 주소가 콘솔에 표시된다.
 
+### 원격 접속 (QR 페어링)
+
+포트포워딩 없이 휴대폰에서 실행 중인 서버를 제어한다. PC가 **아웃바운드** WebSocket으로 자체
+릴레이(`relay/`)에 연결하므로, 폰은 고정된 공개 주소로 앱에 도달한다.
+
+1. 릴레이 배포: [`relay/README.md`](relay/README.md) 참고 (VPS + 도메인 + Caddy TLS).
+2. 설정 → **원격 접속 (QR 페어링)**: 릴레이 주소를 넣고 **원격 접속 켜기**.
+3. 폰으로 QR 스캔(또는 페어링 링크 전달) → `/pair.html` 이 1회용 토큰을 소비하고 기기 토큰을
+   `localStorage` 에 저장한다.
+
+동작 규칙:
+
+- loopback 이 아닌 모든 요청(같은 네트워크 **및** 릴레이)은 페어링된 기기 토큰이 필요하다.
+  데스크톱 창(loopback)은 영향받지 않는다.
+- 파괴적 작업(삭제/이동/초기화/로그 비우기)은 **원격 파괴적 작업 허용**을 켜지 않으면 원격
+  기기에서 거부된다.
+- `reveal`(탐색기 열기), 프로파일 로그인 실행은 데스크톱 전용이다.
+- 원격 클라이언트에는 400px 축소본 경로만 제공된다 (`THUMBNAIL_MAX_PX`).
+- 페어링 토큰은 1회용·5분 만료이며 기기 등록 성공 시 자동 회전한다. 기기 목록과 회수 버튼은
+  같은 설정 카드에 있다.
+- **원격 접속 끄기**는 릴레이 연결을 즉시 종료한다(공개 주소 사용 불가).
+- **실행 중 수집 정지**: 폰에서 홈 *작업 큐* 위젯과 DB 소스 행에 `■` 버튼이 표시된다
+  (`POST /api/sources/{id}/stop`). 취소는 실패로 기록되지 않고 INFO 로그만 남는다.
+- **앱처럼 설치(PWA)**: 릴레이(https)로 접속하면 브라우저가 "홈 화면에 추가"를 제공한다.
+  매니페스트·아이콘·서비스 워커를 앱이 직접 서빙한다. 서비스 워커는 셸과 400px 썸네일만
+  캐시하고 API JSON 은 캐시하지 않는다. 평문 http(LAN) 접속에서는 등록되지 않는다.
+- **실시간 갱신(SSE)**: `GET /api/events` 가 대시보드 변화와 감시 이벤트를 한 연결로 밀어준다.
+  연결 중에는 홈 화면의 4초 폴링을 건너뛰고, 끊기면 폴링으로 자동 복귀한다.
+- **알림(웹훅)**: 설정 → **알림 (웹훅)** 에서 URL(ntfy / Discord / Slack / Telegram 또는 일반
+  JSON·텍스트 엔드포인트)과 본문 형식, 완료/실패 알림 여부를 지정한다. **테스트 전송**으로 즉시
+  확인할 수 있다. 같은 소스·같은 종류의 알림은 `notifyMinIntervalSec` 로 억제하고, 취소된
+  실행은 알림을 보내지 않는다.
+- **종단간 암호화(E2E)**: 릴레이(와 그 앞단의 TLS 종단)는 **불투명한 봉투**만 중계한다 — 요청 경로·
+  헤더·기기 토큰이 모두 AES-256-GCM 암호문 안에 있다. 키는 페어링 시 기기별로 합의하며
+  (ECDH P-256 + HKDF-SHA256), 앱 공개키는 QR/페어링 링크로 전달된다. 재전송된 봉투는 거부된다.
+  E2E 사용 중에는 폰이 SSE 대신 폴링한다(봉투는 단일 왕복이므로). PC 에 `cryptography` 가
+  필요하며, 없으면 평문(v1) 페어링으로 동작한다.
+- 프로토콜 계약: [`relay/protocol.md`](relay/protocol.md) (v1 프레임 + §9 E2E v2) · 설계 기록:
+  [`docs/remote-access-plan.md`](docs/remote-access-plan.md).
+- 연동 테스트(릴레이+에이전트+폰 전체 경로): [`tests/integration/README.md`](tests/integration/README.md)
+  — `python tests/integration/local_relay.py`, `node tests/integration/phone_webcrypto.js`.
+
 ### EXE (Releases)
 
 [Releases](https://github.com/mmoisall/LAFhvst/releases)에서 `LAFhvst-<버전>-win64.zip`을 받아
@@ -242,6 +336,11 @@ python main.py --serve    # 창 없이 서버만 실행 (또는 LAF_NO_GUI=1)
 새 버전이 있으면 홈 화면에 배너가 표시되고 **업데이트 설치**로 즉시 적용할 수 있다.
 업데이트는 앱을 종료한 뒤 파일을 교체하고 재시작하며, 데이터(`data/`, `lafhvst.db`, `log/`)는
 보존된다. 소스 실행에서는 확인만 되고 설치는 비활성화된다.
+
+릴리스 노트는 릴리스 워크플로가 [`docs/release-notes.md`](docs/release-notes.md)(사람이 관리하는
+하이라이트 + 호환성 변화/마이그레이션 안내)와 직전 태그 이후 커밋 목록을 합쳐 만든다.
+**`v*` 태그를 푸시하기 전에 `docs/release-notes.md` 를 갱신**해야 한다 — 자동 생성 노트만으로는
+마이그레이션 단계가 누락된다. 태그 형식: `v0.2.0`(워크플로가 버전을 `build.ps1` 에 전달).
 
 ### 데이터 및 설정
 

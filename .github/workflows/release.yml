@@ -13,6 +13,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -28,8 +30,32 @@ jobs:
         shell: pwsh
         run: ./build.ps1 -Version ("${{ github.ref_name }}" -replace '^v', '')
 
+      # 릴리스 노트 = 사람이 관리하는 하이라이트(docs/release-notes.md) + 태그 이후 커밋 목록.
+      # 호환성 변화/마이그레이션 안내는 docs/release-notes.md 에 적는다(자동 생성만으로는 누락된다).
+      # 인코딩: 읽기/쓰기 모두 UTF-8(BOM 없음)로 고정한다(PowerShell 기본 인코딩 차이 방지).
+      - name: Compose release notes
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $body = "## LAFhvst $tag`n`n"
+          if (Test-Path "docs/release-notes.md") {
+            $body += [System.IO.File]::ReadAllText("docs/release-notes.md")
+            $body += "`n`n"
+          }
+          $prev = $null
+          try { $prev = (git describe --tags --abbrev=0 "$tag^" 2>$null) } catch { $prev = $null }
+          $body += "## Changes`n`n"
+          if ($prev) {
+            $body += ((git log --no-merges --pretty="- %s (%h)" "$prev..$tag") -join "`n")
+          } else {
+            $body += ((git log --no-merges --pretty="- %s (%h)" -n 30) -join "`n")
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $target = Join-Path (Get-Location) "dist/release-body.md"
+          [System.IO.File]::WriteAllText($target, $body, (New-Object System.Text.UTF8Encoding($false)))
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/LAFhvst-*-win64.zip
-          generate_release_notes: true
+          body_path: dist/release-body.md

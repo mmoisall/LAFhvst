@@ -463,6 +463,51 @@ def parse_output(stdout: str, stderr: str) -> dict:
     return {"records": records, "errors": errors}
 
 
+class CancelToken:
+    """실행 중인 gallery-dl 프로세스를 외부(원격 정지 등)에서 취소하는 신호.
+
+    서버가 소스별로 하나씩 만들어 `collect_with_failover` 에 넘기고, 정지 요청이
+    `cancel()` 을 호출하면 대기 중인 프로세스를 즉시 종료한다.
+    """
+
+    def __init__(self) -> None:
+        self._event = asyncio.Event()
+        self._process = None
+
+    def bind(self, process) -> None:
+        """실행 프로세스 등록. 이미 취소된 상태면 즉시 종료한다."""
+        self._process = process
+        if process is not None and self.cancelled:
+            self._kill(process)
+
+    def unbind(self, process) -> None:
+        if self._process is process:
+            self._process = None
+
+    @property
+    def cancelled(self) -> bool:
+        return self._event.is_set()
+
+    def cancel(self) -> bool:
+        """취소 신호를 세우고 실행 중 프로세스를 종료한다(이미 취소됐으면 False)."""
+        already = self._event.is_set()
+        self._event.set()
+        self._kill(self._process)
+        return not already
+
+    @staticmethod
+    def _kill(process) -> None:
+        if process is None:
+            return
+        try:
+            if process.returncode is None:
+                process.kill()
+        except ProcessLookupError:
+            pass
+        except Exception:  # 이미 종료된 프로세스 등
+            pass
+
+
 async def start_process(command: list[str], cwd: str | None = None, env: dict | None = None):
     return await asyncio.create_subprocess_exec(
         *command,
@@ -821,6 +866,7 @@ async def collect_with_failover(
     timeout: float | None = None,
     limit_rate: str | None = None,
     metadata_yaml: bool = False,
+    cancel_token: "CancelToken | None" = None,
 ) -> dict:
     """단일 소스 수집을 프로파일 로테이션과 유기적 한도 학습 루프로 감싼다.
 
@@ -838,6 +884,8 @@ async def collect_with_failover(
     group = await asyncio.to_thread(_db_group, group_id) if group_id else None
 
     while attempts <= max_failovers:
+        if cancel_token is not None and cancel_token.cancelled:
+            break
         attempts += 1
         held = None
         if group and group.get("shared_limit"):
@@ -877,9 +925,15 @@ async def collect_with_failover(
             started_at = _now()
             started_monotonic = time.monotonic()
             process = await start_process(command)
+            if cancel_token is not None:
+                cancel_token.bind(process)
             if on_started is not None:
                 await on_started(source.get("id"), command)
-            result = await wait_process_streaming(process, rate_limit_probe=is_rate_limit_text)
+            try:
+                result = await wait_process_streaming(process, rate_limit_probe=is_rate_limit_text)
+            finally:
+                if cancel_token is not None:
+                    cancel_token.unbind(process)
             run_seconds = max(0.0, time.monotonic() - started_monotonic)
             ended_at = _now()
 
@@ -893,6 +947,20 @@ async def collect_with_failover(
             before_count = after_count
             last_result = result
             last_errors = errors
+
+            if cancel_token is not None and cancel_token.cancelled:
+                # 사용자(원격 포함) 취소: 실패로 기록하지 않고 즉시 종료한다.
+                return {
+                    "ok": False,
+                    "cancelled": True,
+                    "returncode": result.get("returncode"),
+                    "errors": errors,
+                    "rate_limited": False,
+                    "profile": None,
+                    "attempts": attempts,
+                    "failovers": failovers,
+                    "usage_delta": usage_delta,
+                }
 
             if result.get("returncode") == 0 and not result.get("timeout") and not rate_limited:
                 if profile:
@@ -956,8 +1024,10 @@ async def collect_with_failover(
         last_errors = [
             {"code": None, "message": "gallery-dl exited with a non-zero status"}
         ]
+    cancelled = bool(cancel_token is not None and cancel_token.cancelled)
     return {
         "ok": False,
+        "cancelled": cancelled,
         "returncode": last_result.get("returncode"),
         "errors": last_errors,
         "rate_limited": is_rate_limit_error(last_errors),

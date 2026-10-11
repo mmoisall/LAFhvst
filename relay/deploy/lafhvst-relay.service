@@ -1,0 +1,47 @@
+# LAFhvst 릴레이 — systemd 유닛.
+#
+#   /etc/systemd/system/lafhvst-relay.service 로 복사 후:
+#     sudo useradd --system --home /opt/lafhvst-relay --shell /usr/sbin/nologin lafrelay
+#     sudo mkdir -p /var/lib/lafhvst-relay && sudo chown lafrelay:lafrelay /var/lib/lafhvst-relay
+#     sudo systemctl daemon-reload && sudo systemctl enable --now lafhvst-relay
+#
+# relayd 는 127.0.0.1:8788 에만 바인딩한다(공개 노출은 Caddy 담당).
+
+[Unit]
+Description=LAFhvst relay server (WebSocket tunnel + HTTPS proxy)
+Documentation=file:/opt/lafhvst-relay/relay/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lafrelay
+Group=lafrelay
+WorkingDirectory=/opt/lafhvst-relay
+Environment=PYTHONUNBUFFERED=1
+Environment=LAF_RELAY_REGISTRY=/var/lib/lafhvst-relay/registry.json
+ExecStart=/opt/lafhvst-relay/.venv/bin/uvicorn relay.relayd:app \
+    --host 127.0.0.1 --port 8788 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1 \
+    --log-level info --no-server-header
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+KillSignal=SIGINT
+
+# 최소 권한
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/var/lib/lafhvst-relay
+
+[Install]
+WantedBy=multi-user.target

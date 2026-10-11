@@ -481,6 +481,10 @@
     var html = '<button class="btn btn-sm" type="button" data-action="edit" title="편집">⚙️</button>';
     if (item.type === "source") {
       html += '<button class="btn btn-sm" type="button" data-action="run" title="즉시 수집">⚡</button>';
+      if (item.status === "running") {
+        html += '<button class="btn btn-sm danger" type="button" data-action="stop" ' +
+          'title="실행 중인 수집 정지">■</button>';
+      }
     }
     return html;
   }
@@ -1179,6 +1183,17 @@
               refresh();
             }).catch(function (error) {
               showToast(error.message || "수집 요청 실패", "error");
+            });
+          } else if (button.dataset.action === "stop") {
+            window.API.stopSource(item.id).then(function (result) {
+              if (result && result.ok) {
+                showToast("[" + item.name + "] 정지를 요청했습니다.", "info");
+              } else {
+                showToast("실행 중인 수집이 아닙니다.", "info");
+              }
+              refresh();
+            }).catch(function (error) {
+              showToast(error.message || "정지 요청 실패", "error");
             });
           }
         });
