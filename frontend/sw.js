@@ -12,7 +12,7 @@
  * (캐시 이름이 같으면 activate 가 이전 셸을 지우지 않아 예전 JS 가 계속 서빙된다)
  */
 
-var SHELL_CACHE = "lafhvst-shell-v2";
+var SHELL_CACHE = "lafhvst-shell-v3";
 var IMAGE_CACHE = "lafhvst-img-v1";
 var IMAGE_LIMIT = 150;
 var CACHE_PREFIX = "lafhvst-";
