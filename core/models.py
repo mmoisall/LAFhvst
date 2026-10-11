@@ -1172,6 +1172,23 @@ def get_source(session, source_id) -> dict | None:
     return source_to_dict(session, source)
 
 
+def reset_running_status() -> int:
+    """서버 재시작으로 끊긴 수집 흔적을 정리한다(실행 집합은 메모리에만 있으므로 DB 상태만 남는다)."""
+    from sqlalchemy import update
+
+    from .database import get_session
+
+    session = get_session()
+    try:
+        result = session.execute(
+            update(Source).where(Source.status == "running").values(status="idle")
+        )
+        session.commit()
+        return result.rowcount or 0
+    finally:
+        session.close()
+
+
 def create_source(session, payload: dict) -> dict:
     defaults = item_defaults()
     source = Source(

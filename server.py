@@ -401,6 +401,11 @@ async def lifespan(_app: FastAPI):
     # 전역 config.args 는 항상 비운다(예시값 제거). 아이템 개별 args 는 유지.
     SETTINGS["itemConfig"] = _normalize_item_config(SETTINGS.get("itemConfig"))
     models.update_app_settings({"itemConfig": SETTINGS["itemConfig"]})
+    # 재시작으로 중단된 수집 상태 정리(안 하면 그대로 'running' 으로 남아 UI 가 수집 중으로 보인다)
+    try:
+        models.reset_running_status()
+    except Exception:
+        pass
     scheduler.start_scheduler(_start_collection, lambda: SETTINGS, _alt_scheduler_tick)
     if browser_manager.is_available():
         try:
