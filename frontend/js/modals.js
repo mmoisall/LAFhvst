@@ -10,6 +10,12 @@
     return document.getElementById(id);
   }
 
+  function showToast(message, type) {
+    if (window.Toast) {
+      window.Toast.show(message, type);
+    }
+  }
+
   function escapeHtml(value) {
     return String(value === null || value === undefined ? "" : value)
       .replace(/&/g, "&amp;")
@@ -1569,6 +1575,132 @@
     closeColumns();
   }
 
+  var SITE_CREDENTIAL_LINKS = {
+    tumblr: { url: "https://www.tumblr.com/oauth/apps", label: "tumblr OAuth 앱 등록" },
+    deviantart: { url: "https://www.deviantart.com/developers/apps", label: "deviantart 앱 등록" }
+  };
+
+  var siteKeysState = { site: null, keys: [], dirty: {} };
+
+  function siteKeySourceLabel(info) {
+    if (info.placeholder) {
+      return "더미 값입니다 — 실제 값으로 바꿔야 합니다.";
+    }
+    if (info.custom) {
+      return "내가 입력한 값 사용 중" + (info.length ? " (" + info.length + "자)" : "");
+    }
+    if (info.builtin) {
+      return "gallery-dl 내장 키 사용 중 — 여러 사용자가 일일 한도를 공유합니다";
+    }
+    if (info.source === "global") {
+      return "전역 config 값 사용 중" + (info.length ? " (" + info.length + "자)" : "");
+    }
+    if (info.source === "missing") {
+      return "값 없음";
+    }
+    return String(info.source || "");
+  }
+
+  function renderSiteKeyFields(data) {
+    var host = byId("siteKeysFields");
+    if (!host) {
+      return;
+    }
+    var state = (data && data.state) || {};
+    var keys = (data && data.keys) || [];
+    siteKeysState.keys = keys;
+    siteKeysState.dirty = {};
+    host.innerHTML = keys.map(function (key) {
+      var info = state[key] || {};
+      var label = info.label || key;
+      return '<div class="form-group">' +
+        '<label for="siteKey_' + key + '">' + label + "</label>" +
+        '<input type="text" id="siteKey_' + key + '" data-key="' + key +
+          '" autocomplete="off" placeholder="새 값을 입력하면 교체됩니다">' +
+        '<p class="hint muted">현재: ' + escapeHtml(siteKeySourceLabel(info)) + "</p>" +
+        "</div>";
+    }).join("");
+    keys.forEach(function (key) {
+      var input = byId("siteKey_" + key);
+      if (input) {
+        input.addEventListener("input", function () {
+          siteKeysState.dirty[key] = true;
+        });
+      }
+    });
+    var hint = byId("siteKeysHint");
+    var link = SITE_CREDENTIAL_LINKS[siteKeysState.site];
+    if (hint) {
+      var text = "값은 앱 config(data/gallery-dl.conf)에만 저장되고 화면에는 표시되지 않습니다. " +
+        "저장 후 다음 수집부터 적용됩니다.";
+      if (link) {
+        text += ' 발급: <a href="' + link.url + '" target="_blank" rel="noopener">' + escapeHtml(link.label) + "</a>";
+      }
+      hint.innerHTML = text;
+    }
+  }
+
+  function openSiteKeys(site) {
+    site = String(site || "").toLowerCase();
+    if (!site) {
+      return;
+    }
+    siteKeysState.site = site;
+    var title = byId("siteKeysTitle");
+    if (title) {
+      title.textContent = site + " 자격증명";
+    }
+    var hint = byId("siteKeysHint");
+    if (hint) {
+      hint.textContent = "불러오는 중…";
+    }
+    var host = byId("siteKeysFields");
+    if (host) {
+      host.innerHTML = "";
+    }
+    showModal("siteKeysModal");
+    window.API.getSiteCredentials(site).then(renderSiteKeyFields).catch(function (error) {
+      if (hint) {
+        hint.textContent = error.message || "상태를 불러오지 못했습니다.";
+      }
+    });
+  }
+
+  function closeSiteKeys() {
+    hideModal("siteKeysModal");
+  }
+
+  function saveSiteKeys() {
+    var site = siteKeysState.site;
+    if (!site) {
+      closeSiteKeys();
+      return;
+    }
+    var values = {};
+    siteKeysState.keys.forEach(function (key) {
+      if (!siteKeysState.dirty[key]) {
+        return;
+      }
+      var input = byId("siteKey_" + key);
+      if (input) {
+        values[key] = input.value.trim();
+      }
+    });
+    if (!Object.keys(values).length) {
+      showToast("변경한 값이 없습니다.", "info");
+      return;
+    }
+    window.API.setSiteCredentials(site, values).then(function (result) {
+      showToast(
+        site + " 자격증명을 저장했습니다" + ((result && result.saved && result.saved.length) ? " · " + result.saved.join(", ") : ""),
+        "success"
+      );
+      renderSiteKeyFields(result);
+    }).catch(function (error) {
+      showToast(error.message || "저장 실패", "error");
+    });
+  }
+
   function init() {
     if (window.UrlSync) {
       window.UrlSync.bind({ url: "entityUrl", site: "entitySite", key: "entityKey" });
@@ -1668,6 +1800,8 @@
         closeEntity();
       } else if (!byId("colSelectModal").classList.contains("hidden")) {
         closeColumns();
+      } else if (!byId("siteKeysModal").classList.contains("hidden")) {
+        closeSiteKeys();
       }
     });
     var entityModal = byId("entityModal");
@@ -1683,6 +1817,14 @@
         closeColumns();
       }
     });
+    byId("siteKeysSave").addEventListener("click", saveSiteKeys);
+    byId("siteKeysCancel").addEventListener("click", closeSiteKeys);
+    var siteKeysModal = byId("siteKeysModal");
+    siteKeysModal.addEventListener("mousedown", function (event) {
+      if (event.target === siteKeysModal) {
+        closeSiteKeys();
+      }
+    });
   }
 
   window.Modals = {
@@ -1691,6 +1833,7 @@
     openSource: openSource,
     openBatchEdit: openBatchEdit,
     openColumns: openColumns,
+    openSiteKeys: openSiteKeys,
     close: closeEntity
   };
 })(window, document);

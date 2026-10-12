@@ -2502,6 +2502,63 @@ async def issue_pixiv_token(profile_id: int, request: Request) -> dict:
     return result
 
 
+class SiteCredentialPayload(BaseModel):
+    values: dict = {}
+
+
+@app.get("/api/site-credentials/{site}")
+def get_site_credentials(site: str) -> dict:
+    """사이트 자격증명의 적용 상태(내 앱/전역 config/내장 기본값). 값 자체는 노출하지 않는다."""
+    name = (site or "").strip().lower()
+    if name not in gdl_executor.SITE_CREDENTIAL_KEYS:
+        raise HTTPException(status_code=404, detail="지원하지 않는 사이트입니다.")
+    return gdl_executor.credential_state(name)
+
+
+@app.post("/api/site-credentials/{site}")
+def set_site_credentials(site: str, payload: SiteCredentialPayload) -> dict:
+    """사이트 자격증명을 앱 config(`data/gallery-dl.conf`)에 저장한다(빈 값 → 삭제)."""
+    name = (site or "").strip().lower()
+    keys = gdl_executor.SITE_CREDENTIAL_KEYS.get(name)
+    if not keys:
+        raise HTTPException(status_code=404, detail="지원하지 않는 사이트입니다.")
+    values: dict = {}
+    for key in keys:
+        incoming = (payload.values or {}).get(key)
+        if incoming is None:
+            continue
+        raw = str(incoming).strip()
+        label = gdl_executor.CREDENTIAL_LABELS.get(key, key)
+        if raw and len(raw) < gdl_executor.CREDENTIAL_MIN_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail="%s 값이 너무 짧습니다(최소 %d자)." % (label, gdl_executor.CREDENTIAL_MIN_LENGTH),
+            )
+        if raw and gdl_executor.looks_like_placeholder(raw):
+            raise HTTPException(status_code=400, detail="%s 값이 더미(예: '...')처럼 보입니다." % label)
+        values[key] = raw
+    if not values:
+        raise HTTPException(status_code=400, detail="저장할 값이 없습니다.")
+    if not gdl_executor.save_app_config_credentials(name, values):
+        raise HTTPException(status_code=500, detail="config 저장에 실패했습니다.")
+    saved = [gdl_executor.CREDENTIAL_LABELS.get(k, k) for k, v in values.items() if v]
+    cleared = [gdl_executor.CREDENTIAL_LABELS.get(k, k) for k, v in values.items() if not v]
+    detail = []
+    if saved:
+        detail.append("저장 " + ", ".join(saved))
+    if cleared:
+        detail.append("삭제 " + ", ".join(cleared))
+    error_logger.log(
+        "INFO",
+        "auth",
+        "%s 자격증명을 앱 config 에 반영했습니다(%s). 다음 수집부터 적용됩니다." % (name, " · ".join(detail)),
+        scope="system",
+    )
+    state = gdl_executor.credential_state(name)
+    state.update({"ok": True, "saved": saved, "cleared": cleared})
+    return state
+
+
 @app.get("/api/profiles/{profile_id}")
 def get_profile(profile_id: int) -> dict:
     session = _session()

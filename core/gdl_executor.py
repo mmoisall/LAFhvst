@@ -205,6 +205,101 @@ def builtin_credentials(site: str) -> dict:
     return found
 
 
+# 사용자가 직접 입력할 수 있는 자격증명(사이트 → 설정 키). 빈 값으로 저장하면 해당 키를 지운다.
+SITE_CREDENTIAL_KEYS = {
+    "tumblr": ("api-key", "api-secret"),
+    "deviantart": ("client-id", "client-secret"),
+    "pixiv": ("refresh-token",),
+}
+CREDENTIAL_LABELS = {
+    "api-key": "API Key",
+    "api-secret": "API Secret",
+    "client-id": "Client ID",
+    "client-secret": "Client Secret",
+    "refresh-token": "Refresh Token",
+}
+# 값 길이 하한(더미/오타 방지). tumblr·deviantart 실제 값은 20자 이상이다.
+CREDENTIAL_MIN_LENGTH = 12
+
+
+def write_app_config(config: dict, path: str | None = None) -> bool:
+    """앱 config 를 저장한다(원자적 교체)."""
+    target = path or app_config_path()
+    try:
+        utils.ensure_dir(os.path.dirname(target))
+        tmp = target + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            json.dump(config, handle, ensure_ascii=False, indent=2)
+        os.replace(tmp, target)
+        return True
+    except Exception:
+        return False
+
+
+def app_config_section(site: str) -> dict:
+    """앱 config 의 extractor.<site> 사본(없으면 빈 dict)."""
+    config = _load_config_json(app_config_path()) or {}
+    section = ((config.get("extractor") or {}).get(site)) or {}
+    return dict(section) if isinstance(section, dict) else {}
+
+
+def save_app_config_credentials(site: str, values: dict) -> bool:
+    """앱 config 의 extractor.<site> 에 자격증명을 저장한다(빈 문자열 → 키 삭제)."""
+    config = _load_config_json(app_config_path())
+    if config is None:
+        config = {}
+    extractors = config.get("extractor")
+    if not isinstance(extractors, dict):
+        extractors = {}
+        config["extractor"] = extractors
+    section = extractors.get(site)
+    if not isinstance(section, dict):
+        section = {}
+    for key, value in values.items():
+        text = str(value or "").strip()
+        if text:
+            section[key] = text
+        else:
+            section.pop(key, None)
+    if section:
+        extractors[site] = section
+    else:
+        extractors.pop(site, None)
+    return write_app_config(config)
+
+
+def credential_state(site: str) -> dict:
+    """사이트 자격증명의 실제 적용 상태(값 노출 없이)."""
+    keys = SITE_CREDENTIAL_KEYS.get(site) or ()
+    app_section = app_config_section(site)
+    global_section = ((_load_config_json(_global_config_path()) or {}).get("extractor") or {}).get(site) or {}
+    if not isinstance(global_section, dict):
+        global_section = {}
+    builtin = builtin_credentials(site)
+    out = {}
+    for key in keys:
+        value = None
+        source = "missing"
+        if app_section.get(key) is not None:
+            value, source = app_section.get(key), "app"
+        elif global_section.get(key) is not None:
+            value, source = global_section.get(key), "global"
+        elif builtin.get(key):
+            value, source = builtin.get(key), "builtin"
+        text = str(value or "").strip()
+        builtin_value = str(builtin.get(key) or "")
+        out[key] = {
+            "label": CREDENTIAL_LABELS.get(key, key),
+            "source": source if text else "missing",
+            "length": len(text),
+            "placeholder": looks_like_placeholder(text),
+            # 사용자가 직접 넣은 값인지(= 내장 기본값이 아닌지). 내장 키는 일일 한도를 공유한다.
+            "custom": bool(text) and not looks_like_placeholder(text) and text != builtin_value,
+            "builtin": source == "builtin" or (bool(text) and text == builtin_value),
+        }
+    return {"site": site, "keys": list(keys), "state": out}
+
+
 def repair_placeholder_credentials(path: str | None = None) -> list[dict]:
     """전역 config 의 더미 자격증명을 gallery-dl 내장 기본값으로 덮어쓴다(앱 config 에 기록).
 

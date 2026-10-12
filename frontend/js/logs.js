@@ -85,6 +85,22 @@
       '<span class="log-stat">전체 <b>' + (s.total || 0) + "</b></span>";
   }
 
+  // 자격증명(앱/내장 키) 이슈 로그 → 로그에서 바로 입력할 수 있게 사이트를 돌려준다
+  function siteKeysSite(log) {
+    var text = ((log.message || "") + " " + (log.category || "")).toLowerCase();
+    var category = (log.category || "").toLowerCase();
+    if (text.indexOf("tumblr") >= 0 &&
+        (category === "auth" || category === "rate_limit" || category === "short_rate" ||
+         /rate limit|api-key|unauthorized|permission to view/.test(text))) {
+      return "tumblr";
+    }
+    if (text.indexOf("deviantart") >= 0 &&
+        (category === "auth" || /invalid|client-id|client_secret|401/.test(text))) {
+      return "deviantart";
+    }
+    return null;
+  }
+
   function logRow(log) {
     var levelClass = LEVEL_CLASS[log.level] || "log-info";
     var scopeLabel = log.source_name
@@ -105,6 +121,12 @@
     }
     if (log.profile_id) {
       actions += '<button class="btn btn-sm" type="button" data-action="locate-profile" title="이 프로파일 열기">👤 프로파일</button>';
+    }
+    var keySite = siteKeysSite(log);
+    if (keySite) {
+      actions += '<button class="btn btn-sm" type="button" data-action="site-keys" data-site="' +
+        escapeHtml(keySite) + '" title="' + escapeHtml(keySite) +
+        ' 자격증명 입력 (앱 config)">🔑 ' + escapeHtml(keySite) + " 키</button>";
     }
     actions += '<button class="btn btn-sm" type="button" data-action="guide" title="해결 가이드">💡</button>';
     actions += '<button class="btn btn-sm danger" type="button" data-action="delete" title="삭제">🗑️</button>';
@@ -275,6 +297,11 @@
       }
       if (window.Profiles && window.Profiles.focusProfile) {
         window.Profiles.focusProfile(profileId);
+      }
+    } else if (action === "site-keys") {
+      var site = (button.dataset.site || "").toLowerCase();
+      if (window.Modals && window.Modals.openSiteKeys) {
+        window.Modals.openSiteKeys(site);
       }
     } else if (action === "guide") {
       showGuide(log);

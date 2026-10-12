@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="LAFhvst">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/style.css?v=62">
+  <link rel="stylesheet" href="css/style.css?v=64">
 </head>
 <body>
   <main class="app">
@@ -900,6 +900,18 @@
     </div>
   </div>
 
+  <div id="siteKeysModal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="siteKeysTitle">사이트 자격증명</h3>
+      <p class="hint muted" id="siteKeysHint"></p>
+      <div id="siteKeysFields"></div>
+      <div class="modal-foot">
+        <button id="siteKeysCancel" class="btn" type="button">닫기</button>
+        <button id="siteKeysSave" class="btn primary" type="button">저장</button>
+      </div>
+    </div>
+  </div>
+
   <div id="profileModal" class="modal hidden">
     <div class="modal-content">
       <h3 id="profileModalTitle">단일 프로파일</h3>
@@ -1054,23 +1066,23 @@
 
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
-  <script src="js/vendor/Sortable.min.js?v=62"></script>
-  <script src="js/e2e.js?v=62"></script>
-  <script src="js/api.js?v=62"></script>
-  <script src="js/sites.js?v=62"></script>
-  <script src="js/help.js?v=62"></script>
-  <script src="js/urlsync.js?v=62"></script>
-  <script src="js/nav.js?v=62"></script>
-  <script src="js/modals.js?v=62"></script>
-  <script src="js/db.js?v=62"></script>
-  <script src="js/profiles.js?v=62"></script>
-  <script src="js/rules.js?v=62"></script>
-  <script src="js/watcher.js?v=62"></script>
-  <script src="js/logs.js?v=62"></script>
-  <script src="js/home.js?v=62"></script>
-  <script src="js/update.js?v=62"></script>
-  <script src="js/remote.js?v=62"></script>
-  <script src="js/app.js?v=62"></script>
+  <script src="js/vendor/Sortable.min.js?v=64"></script>
+  <script src="js/e2e.js?v=64"></script>
+  <script src="js/api.js?v=64"></script>
+  <script src="js/sites.js?v=64"></script>
+  <script src="js/help.js?v=64"></script>
+  <script src="js/urlsync.js?v=64"></script>
+  <script src="js/nav.js?v=64"></script>
+  <script src="js/modals.js?v=64"></script>
+  <script src="js/db.js?v=64"></script>
+  <script src="js/profiles.js?v=64"></script>
+  <script src="js/rules.js?v=64"></script>
+  <script src="js/watcher.js?v=64"></script>
+  <script src="js/logs.js?v=64"></script>
+  <script src="js/home.js?v=64"></script>
+  <script src="js/update.js?v=64"></script>
+  <script src="js/remote.js?v=64"></script>
+  <script src="js/app.js?v=64"></script>
   <script>
     // PWA: 보안 컨텍스트(https/localhost)에서만 등록된다.
     if ("serviceWorker" in navigator) {

@@ -32,6 +32,16 @@ RESOLUTION_GUIDES = {
         "(앱은 data/gallery-dl.conf 를 함께 넘기며, 전역 config 가 먼저 로드된 뒤 앱 config 가 덮어씁니다.)"
     ),
     "not_found": "대상이 없습니다(404). 소스 URL/키가 유효한지 확인하세요.",
+    "tumblr_credentials": (
+        "tumblr 는 gallery-dl 의 `extractor.tumblr.api-key/api-secret` 으로 Tumblr API 를 호출합니다. "
+        "gallery-dl 내장 키는 전 세계 사용자가 **일일 한도를 공유**하므로 'Daily API rate limit exceeded'(429)가 "
+        "자주 납니다(리셋 시각은 로그에 표시). "
+        "① https://www.tumblr.com/oauth/apps 에서 본인 OAuth 앱을 만들어 키/시크릿 발급 → "
+        "이 로그의 `🔑 tumblr 키` 버튼으로 넣으면 한도가 내 앱 기준으로 분리됩니다. "
+        "② 한도가 리셋될 때까지 기다려도 됩니다. "
+        "③ 대시보드 전용 블로그(403)는 추가로 access-token/access-token-secret 이 필요합니다"
+        "(본인 앱과 같은 앱의 토큰이어야 합니다)."
+    ),
     "browser": "브라우저 실행 실패입니다. Settings에서 브라우저 채널/스텔스를 점검하고 잠금을 정리하세요.",
     "network": "네트워크/타임아웃 오류입니다. 연결과 프록시 설정을 확인하세요.",
 }
@@ -75,6 +85,10 @@ def guide_for(category=None, error_code=None, message=None) -> str | None:
     text = (str(message or "") + " " + str(error_code or "")).lower()
     if "refresh token" in text or "refresh_token" in text or "authenticationerror" in text:
         return RESOLUTION_GUIDES["pixiv_token"]
+    if "tumblr" in text and (
+        "rate limit" in text or "api-key" in text or "unauthorized" in text or "permission to view" in text
+    ):
+        return RESOLUTION_GUIDES["tumblr_credentials"]
     if category == "auth" or "auth" in text or "로그인" in text:
         return RESOLUTION_GUIDES["auth"]
     if category == "rate_limit" or "code 88" in text or "rate limit" in text:

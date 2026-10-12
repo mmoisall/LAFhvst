@@ -569,6 +569,15 @@
         body: {}
       });
     },
+    getSiteCredentials: function (site) {
+      return request("/api/site-credentials/" + encodeId(site));
+    },
+    setSiteCredentials: function (site, values) {
+      return request("/api/site-credentials/" + encodeId(site), {
+        method: "POST",
+        body: { values: values || {} }
+      });
+    },
     getLaunchingProfiles: function () {
       return request("/api/profiles/launching");
     },
